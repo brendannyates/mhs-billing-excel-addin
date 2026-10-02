@@ -2,7 +2,6 @@
 <header><small>MINDFUL HEALTH SOLUTIONS</small><h1>Billing tickets</h1><p>One record. Clear ownership. Timely follow-up.</p></header>
 <div id="message" role="status" aria-live="polite">Open this add-in inside Excel.</div>
 <section class="toolbar"><button id="setup">Initialize / refresh</button><button id="sync">Sync submissions</button><button id="refresh">Refresh views</button></section>
-<label>Your email (view filter)<input id="email" type="email" placeholder="name@mymhs.com"></label>
-<nav aria-label="Ticket views"><button data-view="my">My tickets</button><button data-view="clinic">Clinic</button><button data-view="stats">Dashboard</button><button data-view="mrn">MRN lookup</button><button data-view="action">Needs action</button><button data-view="form">Submit ticket</button><button data-view="settings">Settings</button></nav>
+<nav aria-label="Ticket views"><button data-view="clinic">Clinic Dashboard</button><button data-view="form">Submit New Ticket</button><button data-view="recap">Clinic Recaps</button><button data-view="settings">Settings</button></nav>
 <main id="view"></main><dialog id="editor"><form id="editForm"><h2>Edit Master ticket</h2><div id="fields"></div><p>Blanking a field here explicitly clears it. Forms blanks never clear Master.</p><button type="submit">Save to Master</button><button type="button" id="cancel">Cancel</button></form></dialog>
 <script type="module" src="app.js"></script></body></html>

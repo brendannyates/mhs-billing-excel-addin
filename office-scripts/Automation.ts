@@ -10,12 +10,16 @@ function day(v: Cell): string {
   if(/^\d{4}-\d{2}-\d{2}$/.test(String(v)))return String(v);
   const d=new Date(String(v));if(isNaN(d.getTime()))return '';
   // Power Automate passes Pacific local date explicitly for SLA comparisons.
-  return d.toISOString().slice(0,10);
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
 }
 function due(start: Cell, count: number, holidays: string[]): string {
   const s=day(start);if(!s)return '';const d=new Date(s+'T12:00:00Z');let n=0;
   while(n<count){d.setUTCDate(d.getUTCDate()+1);if(d.getUTCDay()!==0&&d.getUTCDay()!==6&&!holidays.includes(d.toISOString().slice(0,10)))n++;}
   return d.toISOString().slice(0,10);
+}
+function businessAge(start: Cell, today: string, holidays: string[]): number {
+  const key=day(start);if(!key||key>today)return 0;const d=new Date(key+'T12:00:00Z');let n=0;
+  while(d.toISOString().slice(0,10)<today){d.setUTCDate(d.getUTCDate()+1);if(d.getUTCDay()!==0&&d.getUTCDay()!==6&&!holidays.includes(d.toISOString().slice(0,10)))n++;}return n;
 }
 function object(headers: string[], row: Cell[]): Ticket {const o: Ticket={};headers.forEach((h,i)=>o[h]=row[i]??'');return o;}
 function epoch(v: Cell): number {return typeof v==='number'?(v-25569)*86400000:Date.parse(String(v));}
@@ -71,6 +75,13 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
       if(present(t['Resolution Due'])&&localToday>String(t['Resolution Due']))flags.push('Resolution SLA overdue');
       if(t['Urgency Level:']==='Critical')flags.push('Critical priority');
     }t['Escalation Flag']=flags.join('; ');
+    const reminderFlags: string[]=[],entered=t['Completion time']||t['Start time']||'';
+    const dates=[t['Follow Up At'],t['Date of Patient Outreach (if applicable):'],t['Last Reply At'],t['Date of first reply from Arietis:']].filter(present).map(day).filter(Boolean).sort();
+    if(!isClosed(t)){
+      if(!present(t['Date of first reply from Arietis:'])&&businessAge(entered,localToday,holidays)>3)reminderFlags.push('Needs follow-up beyond 3 business days');
+      if(businessAge(dates[dates.length-1]||entered,localToday,holidays)>5)reminderFlags.push('No follow-up beyond 5 business days');
+      if(businessAge(t['Submitted to Vendor At']||entered,localToday,holidays)>6)reminderFlags.push('Resolution overdue beyond 6 business days');
+    }t['Reminder Flags']=reminderFlags.join('; ');
   });
   // Single serialized worker is mandatory: no independent flows may race this write.
   if(operation!=='digest'){
@@ -87,7 +98,7 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
     if(mode==='weekly'&&isClosed(t)){const since=new Date(localToday+'T00:00:00Z');since.setUTCDate(since.getUTCDate()-7);if(day(t['Closed At'])<since.toISOString().slice(0,10))return;}
     if(!groups[recipient])groups[recipient]=[];
     // Email summary deliberately omits MRN, patient, notes, balances, attachments.
-    groups[recipient].push({'Id':t.Id,'Patient Clinic:':t['Patient Clinic:'],'Status:':t['Status:'],'Confirmation Due':t['Confirmation Due'],'Resolution Due':t['Resolution Due'],'Escalation Flag':t['Escalation Flag'],'Sync Conflicts':t['Sync Conflicts']});
+    groups[recipient].push({'Id':t.Id,'Patient Clinic:':t['Patient Clinic:'],'Status:':t['Status:'],'Confirmation Due':t['Confirmation Due'],'Resolution Due':t['Resolution Due'],'Escalation Flag':t['Escalation Flag'],'Sync Conflicts':t['Sync Conflicts'],'Reminder Flags':t['Reminder Flags']});
   });
   return JSON.stringify({processed:tickets.length,unmatched,digests:Object.keys(groups).map(email=>({email,tickets:groups[email]}))});
 }

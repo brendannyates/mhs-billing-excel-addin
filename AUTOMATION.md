@@ -78,3 +78,13 @@ https://learn.microsoft.com/en-us/power-automate/forms/overview
 https://learn.microsoft.com/en-us/office/dev/scripts/develop/power-automate-integration
 https://learn.microsoft.com/en-us/connectors/office365/
 https://learn.microsoft.com/en-us/connectors/excelonlinebusiness/
+
+
+## Clinic AM / PM recap flow (updated dashboard)
+Save office-scripts/ClinicRecap.ts as **Billing Clinic Recap**. After successful serialized reconciliation, run this read-only script at AM/PM business times with localToday as Pacific YYYY-MM-DD, mode=am or pm, clinic blank for all REF clinics (or one exact ClinicName), and workbookUrl set to the restricted workbook URL (or Settings B6).
+
+Parse result and loop over clinicDigests. Use email (REF ClinicEmail), subject, and html directly in Send an email (V2), with HTML enabled. The script skips weekends and configured holidays and excludes empty recaps. AM starts “Please see the below open billing tickets” and lists Date Opened, MRN, Patient, Ticket Number, Reply Status, Resolution Status. It excludes resolved/closed tickets and adds receipt follow-up beyond 3 working days and resolution-overdue beyond 6 working days. PM lists only tickets resolved/closed on that Pacific local day. These clinic templates contain patient/MRN data; send only through your approved Microsoft 365 workflow to verified REF clinic recipients. They are generated in the workbook context and are never stored on GitHub.
+
+Use a distinct delivery-log key local-date + clinic + am/pm for retry deduplication. Keep the existing personalized daily/weekly owner flow separate; its compact digests now include Reminder Flags as well as formal SLA flags. Formal deadlines remain 2/5 business days and do not shift to the 3/6 reminder thresholds.
+
+The Update tickets email button is a general workbook link. After opening the workbook, launch MHS Billing Tickets and use Update status on the required ticket. No per-ticket email deep link is claimed. Ticket entry date means Completion time, falling back to Start time. Past Due means more than 5 business days since the most recent Follow Up At, patient outreach, first/last vendor reply, or entry if none exists. Record staff follow-ups on Master via the add-in.
