@@ -1,7 +1,11 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MHS Billing Tickets</title><link rel="stylesheet" href="style.css"><script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script></head><body>
-<header><small>MINDFUL HEALTH SOLUTIONS</small><h1>Billing tickets</h1><p>One record. Clear ownership. Timely follow-up.</p></header>
-<div id="message" role="status" aria-live="polite">Open this add-in inside Excel.</div>
-<section class="toolbar"><button id="setup">Initialize / refresh</button><button id="sync">Sync submissions</button><button id="refresh">Refresh views</button></section>
-<nav aria-label="Ticket views"><button data-view="clinic">Clinic Dashboard</button><button data-view="form">Submit New Ticket</button><button data-view="recap">Clinic Recaps</button><button data-view="settings">Settings</button></nav>
-<main id="view"></main><dialog id="editor"><form id="editForm"><h2>Edit Master ticket</h2><div id="fields"></div><p>Blanking a field here explicitly clears it. Forms blanks never clear Master.</p><button type="submit">Save to Master</button><button type="button" id="cancel">Cancel</button></form></dialog>
-<script type="module" src="app.js"></script></body></html>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MHS Billing Tickets</title><link rel="stylesheet" href="style.css?v=3"><script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script></head>
+<body><div class="app-shell">
+<aside class="sidebar"><div class="brand"><strong>MHS</strong><small>BILLING PORTAL</small></div>
+<nav aria-label="Ticket views"><button data-view="clinic">▦ <span>Dashboard</span></button><button data-view="recap">✉ <span>Clinic recaps</span></button><button data-view="settings">⚙ <span>Settings</span></button></nav>
+<details class="maintenance"><summary>Sync controls</summary><div class="toolbar"><button id="setup">Initialize / refresh</button><button id="sync">Sync now</button><button id="refresh">Refresh views</button></div></details>
+<div class="profile"><span class="avatar" id="profileInitials">—</span><div><strong id="profileName">Your profile</strong><small id="profileRole">Set up in Settings</small></div></div></aside>
+<main class="main"><header class="page-heading"><div><h1 id="pageTitle">Clinic Dashboard</h1><p id="pageSubtitle">Your clinic billing work, in one place.</p></div><span class="sync-badge" id="syncBadge">Open in Excel</span></header>
+<div id="message" role="status" aria-live="polite">Open this add-in inside Excel to load your workbook.</div><div id="view"></div></main></div>
+<dialog id="editor"><form id="editForm"><div class="dialog-heading"><div><small>MASTER TICKET</small><h2 id="editorTitle">Update ticket</h2></div><button type="button" id="cancel" aria-label="Close ticket editor">×</button></div><div id="fields"></div><p class="help">Blanking a field here explicitly clears it. Forms blanks never clear Master.</p><div class="dialog-actions"><button type="submit" class="primary">Save to Master</button></div></form></dialog>
+<script type="module" src="app.js?v=3"></script></body></html>
