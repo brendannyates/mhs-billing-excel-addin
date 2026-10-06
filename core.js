@@ -51,7 +51,8 @@ export function reminders(r,holidays=[],today=localDay(new Date().toISOString())
   return {age,awaiting:active&&!filled(r['Date of first reply from Arietis:']),needsFollowUp:active&&!filled(r['Date of first reply from Arietis:'])&&age>3,pastDue:active&&businessAge(lastFollow,holidays,today)>5,resolutionOverdue:active&&businessAge(r['Submitted to Vendor At']||opened(r),holidays,today)>6};
 }
 export function scopeTickets(rows,profile,{scope='assigned',mine=false,mrn='',clinic=''}={}) {
-  return rows.filter(r=>(scope==='all'||(profile.clinics||[]).includes(r['Patient Clinic:']))&&(!clinic||r['Patient Clinic:']===clinic)&&(!mine||String(r['Owner Email']||r.Email).trim().toLowerCase()===String(profile.email||'').trim().toLowerCase())&&(!mrn||String(r['MRN:']).trim()===mrn.trim()));
+  const clinics=profile.clinics||[],all=scope==='all'||!clinics.length;
+  return rows.filter(r=>(all||clinics.includes(r['Patient Clinic:']))&&(!clinic||r['Patient Clinic:']===clinic)&&(!mine||String(r.Email||'').trim().toLowerCase()===String(profile.email||'').trim().toLowerCase())&&(!mrn||String(r['MRN:']).trim()===mrn.trim()));
 }
 const htmlEscape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function clinicRecap(rows,clinic,mode='am',holidays=[],today=localDay(new Date().toISOString()),workbookUrl='') {
