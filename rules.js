@@ -1,111 +1,5 @@
-// Automation.ts — paste into Excel > Automate > New script. Generated from src/office/Automation.ts + src/rules.ts. Do not edit here.
-
-/** Run from Power Automate. Serialize every workbook writer through one worker flow. */
-// Cell, Row (evaluated model) and the SLA/action rules come from the shared rules engine appended below.
-type Row = {[key: string]: Cell};
-type Reply = {conversationId: string; sender: string; receivedAt: string; messageId: string};
-type State = {baseline: Row; overrides: string[]; conflicts: string[]};
-function present(v: Cell | undefined): boolean { return v !== undefined && String(v).trim() !== ''; }
-function isClosedRow(t: Row): boolean { return /^(Closed|Resolved)\b/.test(String(t['Status:']||'')); }
-function day(v: Cell): string {
-  if(typeof v==='boolean')return '';
-  if(typeof v==='number')return new Date(Math.round((v-25569)*86400000)).toISOString().slice(0,10);
-  if(/^\d{4}-\d{2}-\d{2}$/.test(String(v)))return String(v);
-  const d=new Date(String(v));if(isNaN(d.getTime()))return '';
-  // Power Automate passes Pacific local date explicitly for SLA comparisons.
-  return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
-}
-function due(start: Cell, count: number, holidays: string[]): string {
-  const s=day(start);if(!s)return '';const d=new Date(s+'T12:00:00Z');let n=0;
-  while(n<count){d.setUTCDate(d.getUTCDate()+1);if(d.getUTCDay()!==0&&d.getUTCDay()!==6&&!holidays.includes(d.toISOString().slice(0,10)))n++;}
-  return d.toISOString().slice(0,10);
-}
-function businessAge(start: Cell, today: string, holidays: string[]): number {
-  const key=day(start);if(!key||key>today)return 0;const d=new Date(key+'T12:00:00Z');let n=0;
-  while(d.toISOString().slice(0,10)<today){d.setUTCDate(d.getUTCDate()+1);if(d.getUTCDay()!==0&&d.getUTCDay()!==6&&!holidays.includes(d.toISOString().slice(0,10)))n++;}return n;
-}
-function object(headers: string[], row: Cell[]): Row {const o: Row={};headers.forEach((h,i)=>o[h]=row[i]??'');return o;}
-function epoch(v: Cell): number {return typeof v==='number'?(v-25569)*86400000:Date.parse(String(v));}
-function main(workbook: ExcelScript.Workbook, operation: string='sync', localToday: string='', repliesJson: string='[]', mode: string='open'): string {
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(localToday))throw Error('Pass localToday as Pacific YYYY-MM-DD.');
-  const master=workbook.getWorksheet('Master'),raw=workbook.getWorksheet('Raw Data'),stateSheet=workbook.getWorksheet('_SyncState'),settings=workbook.getWorksheet('Settings');
-  if(!master||!raw||!stateSheet||!settings)throw Error('Initialize with Excel add-in first.');
-  const values=master.getUsedRange().getValues(),headers=values[0].map(String),tickets=values.slice(1).filter(r=>present(r[0])).map(r=>object(headers,r));
-  const duplicate=new Set<string>();tickets.forEach(t=>{if(duplicate.has(String(t.Id)))throw Error('Duplicate Master Id');duplicate.add(String(t.Id));});
-  const sv=stateSheet.getUsedRange().getValues(),states: {[id: string]: State}={};sv.slice(1).forEach(r=>{if(present(r[0]))states[String(r[0])]={baseline:JSON.parse(String(r[1]||'{}')),overrides:JSON.parse(String(r[2]||'[]')),conflicts:JSON.parse(String(r[3]||'[]'))};});
-  const holidays=settings.getUsedRange().getValues().slice(1).map(r=>String(r[3]||'')).filter(v=>/^\d{4}-\d{2}-\d{2}$/.test(v));
-  const unmatched: string[]=[];
-  if(operation==='sync'){
-    const rv=raw.getUsedRange().getValues(),rh=rv[0].map(String),seen=new Set<string>();
-    rv.slice(1).forEach(r=>{if(present(r[0])){const id=String(r[0]);if(seen.has(id))throw Error('Duplicate Raw Data Id');seen.add(id);}});
-    rv.slice(1).forEach(r=>{
-      if(!present(r[0]))return;const source=object(rh,r),id=String(r[0]);let found=tickets.find(t=>String(t.Id)===id);
-      if(!found){const blank: Row={};headers.forEach(h=>blank[h]='');tickets.push(blank);found=blank;}
-      const target: Row=found;
-      const st=states[id]||{baseline:{},overrides:[],conflicts:[]};
-      rh.forEach(h=>{
-        if(!headers.includes(h)||!present(source[h])||st.overrides.includes(h))return;
-        if(NEVER_MERGE_COLS.indexOf(h)>=0&&present(target[h]))return;
-        if(h==='Date of first reply from Arietis:' && present(target[h]))return;
-        if(h==='Status:' && isClosedRow(target))return;
-        if(h==='Status:' && /^(Closed|Resolved)\b/.test(String(source[h]))&&!isClosedRow(target)){st.conflicts.push('Status: (close after inbox reconciliation)');return;}
-        if(MASTER_OWNED_COLS.indexOf(h)>=0&&present(target[h]))return; // staff own these once filled (no conflict)
-        if(!present(target[h]))target[h]=source[h];
-        else if(String(source[h])!==String(st.baseline[h]??'')&&String(source[h])!==String(target[h])){
-          if(st.baseline[h]!==undefined&&String(target[h])===String(st.baseline[h]))target[h]=source[h];else st.conflicts.push(h);
-        }
-      });
-      target['Owner Email']=target['Owner Email']||target.Email||'';st.baseline=source;st.conflicts=[...new Set(st.conflicts)].filter(k=>MASTER_OWNED_COLS.indexOf(k)<0&&NEVER_MERGE_COLS.indexOf(k)<0);target['Sync Conflicts']=st.conflicts.join('; ');states[id]=st;
-    });
-  }else if(operation==='reply'){
-    const replies: Reply[]=JSON.parse(repliesJson);
-    replies.forEach(r=>{
-      if(r.sender.toLowerCase()!=='patientbilling@arietishealth.com')return;
-      if(!r.conversationId||!Number.isFinite(Date.parse(r.receivedAt)))throw Error('Invalid reply payload');
-      const matches=tickets.filter(t=>String(t['Vendor Conversation ID'])===r.conversationId);
-      if(matches.length!==1){unmatched.push(r.messageId);return;}
-      const t=matches[0],received=Date.parse(r.receivedAt),cutoff=present(t['Closed At'])?epoch(t['Closed At']):Infinity;
-      if(received>cutoff)return;
-      const first=t['Date of first reply from Arietis:'],last=t['Last Reply At'];
-      if(!present(first)||received<epoch(first))t['Date of first reply from Arietis:']=r.receivedAt;
-      if(!present(last)||received>epoch(last))t['Last Reply At']=r.receivedAt;
-      if(!isClosedRow(t)&&t['Status:']==='MHS - Submitted to Arietis')t['Status:']='Arietis - Confirmed Receipt';
-      const st=states[String(t.Id)]||{baseline:{},overrides:[],conflicts:[]};st.overrides=[...new Set([...st.overrides,'Date of first reply from Arietis:','Status:'])];states[String(t.Id)]=st;
-    });
-  }else if(operation!=='digest')throw Error('Unknown operation');
-  // Derived columns use the shared rules: SLA clocks start at form submission (Completion time),
-  // receipt due +2 business days, resolution due +5, plus the needs-action list.
-  const settingRows=settings.getUsedRange().getValues();
-  const cfg=readSettings(settingRows.slice(1).map(r=>[r[0],r[1]] as Cell[]));
-  const ctx: EvalCtx={now:(toSerial(localToday) as number)+0.5,hol:holidaySet(holidays),receiptDays:cfg.receiptDays,resolutionDays:cfg.resolutionDays,staleDays:cfg.staleDays};
-  const evaluated=loadTickets(headers,tickets.map(t=>headers.map(h=>t[h]??'')),ctx);
-  const byId: {[id: string]: Ticket}={};evaluated.forEach(e=>{byId[String(e.id)]=e;});
-  tickets.forEach(t=>{
-    const e=byId[String(Number(t.Id))];if(!e)return;
-    derivedColumns(e).forEach(([col,value])=>{if(headers.includes(col))t[col]=value;});
-  });
-  // Single serialized worker is mandatory: no independent flows may race this write.
-  if(operation!=='digest'){
-    if(tickets.length)master.getRangeByIndexes(1,0,tickets.length,headers.length).setValues(tickets.map(t=>headers.map(h=>t[h]??'')));
-    const tables=master.getTables();if(tables.length)tables[0].resize(master.getRangeByIndexes(0,0,tickets.length+1,headers.length));
-    const stateRows=Object.keys(states).map(id=>[id,JSON.stringify(states[id].baseline),JSON.stringify(states[id].overrides),JSON.stringify(states[id].conflicts)]);
-    if(stateRows.length)stateSheet.getRangeByIndexes(1,0,stateRows.length,4).setValues(stateRows);
-  }
-  const groups: {[email: string]: Row[]}={};
-  tickets.forEach(t=>{
-    const recipient=String(t['Owner Email']||t.Email||'').trim().toLowerCase();
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient))return;
-    if(mode!=='weekly'&&isClosedRow(t)&&day(t['Closed At'])!==localToday)return;
-    if(mode==='weekly'&&isClosedRow(t)){const since=new Date(localToday+'T00:00:00Z');since.setUTCDate(since.getUTCDate()-7);if(day(t['Closed At'])<since.toISOString().slice(0,10))return;}
-    if(!groups[recipient])groups[recipient]=[];
-    // Email summary deliberately omits MRN, patient, notes, balances, attachments.
-    groups[recipient].push({'Id':t.Id,'Patient Clinic:':t['Patient Clinic:'],'Status:':t['Status:'],'Confirmation Due':t['Confirmation Due'],'Resolution Due':t['Resolution Due'],'Escalation Flag':t['Escalation Flag'],'Sync Conflicts':t['Sync Conflicts'],'Reminder Flags':t['Reminder Flags']});
-  });
-  return JSON.stringify({processed:tickets.length,unmatched,digests:Object.keys(groups).map(email=>({email,tickets:groups[email]}))});
-}
-
-
-// ======================= shared rules (src/rules.ts) =======================
+/* Generated from src/rules.ts by scripts/build.mjs. Do not edit. */
+(function(){
 // ============================================================================
 // MHS Billing Tickets — rules engine (single source of truth)
 // SLA clocks, needs-action rules, ops escalation, stats and email builders.
@@ -114,7 +8,7 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
 // All date/times are Excel serial numbers in LOCAL wall-clock time.
 // ============================================================================
 
-type Cell = string | number | boolean;
+                                      
 
 const COL = {
   id: "Id",
@@ -173,34 +67,34 @@ const COL = {
 };
 
 /** The 24 Microsoft Forms columns, in Raw Data / Master order. */
-const FORM_COLS: string[] = [
+const FORM_COLS           = [
   COL.id, COL.start, COL.submitted, COL.email, COL.name, COL.option, COL.dept, COL.clinic,
   COL.patient, COL.mrn, COL.urgency, COL.source, COL.taskType, COL.amount, COL.notes,
   COL.attachments, COL.status, COL.firstReplyDate, COL.outreachDate, COL.resolutionDate,
   COL.falseVerif, COL.serviceRecovery, COL.errorSource, COL.outcome,
 ];
 /** Operational columns appended to Master by Initialize (order = order added). */
-const EXTRA_COLS: string[] = [
+const EXTRA_COLS           = [
   COL.ownerEmail, COL.convId, COL.sentAt, COL.lastReplyAt, COL.closedAt, COL.confirmDue, COL.resolveDue, COL.escFlag,
   COL.conflicts, COL.followUpAt, COL.reminderFlags, COL.ehr, COL.cc, COL.updBy, COL.updAt,
   COL.workNotes, COL.opsFlag, COL.opsReason, COL.opsBy, COL.opsAt, COL.commitment, COL.followUpDue, COL.reviewNotes, COL.reviewedAt,
 ];
-const MASTER_COLS: string[] = FORM_COLS.concat(EXTRA_COLS);
-const DATE_COLS: string[] = [
+const MASTER_COLS           = FORM_COLS.concat(EXTRA_COLS);
+const DATE_COLS           = [
   COL.start, COL.submitted, COL.firstReplyDate, COL.outreachDate, COL.resolutionDate, COL.sentAt, COL.firstReplyAt,
   COL.lastReplyAt, COL.closedAt, COL.followUpAt, COL.updAt, COL.rawSynced, COL.opsAt, COL.followUpDue, COL.reviewedAt,
 ];
 /** Date-only columns (written as dates, not timestamps). */
-const DATE_ONLY_COLS: string[] = [COL.firstReplyDate, COL.outreachDate, COL.resolutionDate, COL.followUpDue, COL.followUpAt];
+const DATE_ONLY_COLS           = [COL.firstReplyDate, COL.outreachDate, COL.resolutionDate, COL.followUpDue, COL.followUpAt];
 /** Fields staff own on Master (Portal rule): the form only fills them while blank and they never raise sync conflicts. */
-const MASTER_OWNED_COLS: string[] = [
+const MASTER_OWNED_COLS           = [
   "Status:", "Date of first reply from Arietis:", "Date of Patient Outreach (if applicable):", "Date of Resolution:",
   "Was false verification of balance/charge given by Arietis?", "Patient Feedback/Service Recovery Flag:", "Source of Error:", "Outcome:", "EHR Task",
 ];
 /** Form fields that are never merged after import ("Choose an option:" flips to "Update…" when owners use the edit link). */
-const NEVER_MERGE_COLS: string[] = ["Choose an option:", "Form Edit Submission Link", "Column1"];
+const NEVER_MERGE_COLS           = ["Choose an option:", "Form Edit Submission Link", "Column1"];
 /** Form fields a Forms "edit response" may legitimately change on an existing ticket. */
-const MERGEABLE_COLS: string[] = [
+const MERGEABLE_COLS           = [
   COL.dept, COL.clinic, COL.patient, COL.mrn, COL.urgency, COL.source, COL.taskType, COL.amount,
   COL.notes, COL.attachments, COL.status, COL.firstReplyDate, COL.outreachDate, COL.resolutionDate,
   COL.falseVerif, COL.serviceRecovery, COL.errorSource, COL.outcome,
@@ -213,7 +107,7 @@ const STATUS = {
   closedNoAction: "Closed (No Corrective Action Needed)",
   resolved: "Resolved (Corrective Action Complete)",
 };
-const CLOSED_STATUSES: string[] = [STATUS.closedNoAction, STATUS.resolved];
+const CLOSED_STATUSES           = [STATUS.closedNoAction, STATUS.resolved];
 
 const DEFAULTS = {
   receiptDays: 2,
@@ -226,24 +120,24 @@ const DEFAULTS = {
 // ---------------------------------------------------------------------------
 // Value helpers
 // ---------------------------------------------------------------------------
-function norm(v: Cell | null | undefined): string {
+function norm(v                         )         {
   if (v === null || v === undefined) return "";
   return String(v).replace(/ /g, " ").replace(/\s+/g, " ").trim();
 }
-function normKey(v: Cell | null | undefined): string {
+function normKey(v                         )         {
   return norm(v).toLowerCase();
 }
-function isBlank(v: Cell | null | undefined): boolean {
+function isBlank(v                         )          {
   return v === null || v === undefined || norm(v) === "";
 }
-function serialFromParts(y: number, mo: number, d: number, h: number, mi: number, s: number): number {
+function serialFromParts(y        , mo        , d        , h        , mi        , s        )         {
   return Date.UTC(y, mo - 1, d, h, mi, s) / 86400000 + 25569;
 }
 /** Wall-clock offset used for ISO timestamps with Z/offset. Browser sets local; Office Scripts use Pacific. */
-let OFFSET_FN: (ms: number) => number = (ms: number): number => pacificOffsetMin(ms);
-function setOffsetFn(f: (ms: number) => number): void { OFFSET_FN = f; }
+let OFFSET_FN                         = (ms        )         => pacificOffsetMin(ms);
+function setOffsetFn(f                        )       { OFFSET_FN = f; }
 /** Parses an Excel serial, ISO string, or US m/d/yy[ h:mm AM] string to a serial. */
-function toSerial(v: Cell | null | undefined): number | null {
+function toSerial(v                         )                {
   if (v === null || v === undefined || v === "" || typeof v === "boolean") return null;
   if (typeof v === "number") return v > 0 ? v : null;
   const s = norm(v);
@@ -267,23 +161,23 @@ function toSerial(v: Cell | null | undefined): number | null {
   }
   return null;
 }
-function serialToDate(s: number): Date {
+function serialToDate(s        )       {
   return new Date(Math.round((s - 25569) * 86400000));
 }
-function pad2(n: number): string {
+function pad2(n        )         {
   return n < 10 ? "0" + n : String(n);
 }
-function fmtDate(s: number | null): string {
+function fmtDate(s               )         {
   if (s === null) return "";
   const d = serialToDate(s);
   return (d.getUTCMonth() + 1) + "/" + d.getUTCDate() + "/" + String(d.getUTCFullYear()).slice(2);
 }
-function fmtShort(s: number | null): string {
+function fmtShort(s               )         {
   if (s === null) return "";
   const d = serialToDate(s);
   return (d.getUTCMonth() + 1) + "/" + d.getUTCDate();
 }
-function fmtTime(s: number | null): string {
+function fmtTime(s               )         {
   if (s === null) return "";
   const d = serialToDate(s);
   let h = d.getUTCHours();
@@ -292,34 +186,34 @@ function fmtTime(s: number | null): string {
   if (h === 0) h = 12;
   return h + ":" + pad2(d.getUTCMinutes()) + ap;
 }
-function fmtDateTime(s: number | null): string {
+function fmtDateTime(s               )         {
   if (s === null) return "";
   const hasTime = Math.abs(s - Math.floor(s)) > 1e-6;
   return hasTime ? fmtShort(s) + " " + fmtTime(s) : fmtShort(s);
 }
-function fmtMoney(n: number | null): string {
+function fmtMoney(n               )         {
   if (n === null || isNaN(n)) return "";
   return "$" + Math.round(n).toLocaleString("en-US");
 }
-function weekdayName(s: number): string {
+function weekdayName(s        )         {
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday(s)];
 }
-function escHtml(s: string): string {
+function escHtml(s        )         {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 // ---------------------------------------------------------------------------
 // Business-day math (weekends + holiday table)
 // ---------------------------------------------------------------------------
-function weekday(s: number): number {
+function weekday(s        )         {
   return (((Math.floor(s) - 25569 + 4) % 7) + 7) % 7; // 0 = Sunday
 }
-function isBizDay(day: number, hol: Set<number>): boolean {
+function isBizDay(day        , hol             )          {
   const w = weekday(day);
   return w !== 0 && w !== 6 && !hol.has(Math.floor(day));
 }
 /** Date (whole-day serial) that is n business days after the day of s. */
-function addBizDays(s: number, n: number, hol: Set<number>): number {
+function addBizDays(s        , n        , hol             )         {
   let d = Math.floor(s);
   let c = 0;
   while (c < n) {
@@ -329,7 +223,7 @@ function addBizDays(s: number, n: number, hol: Set<number>): number {
   return d;
 }
 /** Business days elapsed from the day of a to the day of b (a's day excluded). Negative if b < a. */
-function bizDaysBetween(a: number, b: number, hol: Set<number>): number {
+function bizDaysBetween(a        , b        , hol             )         {
   const da = Math.floor(a);
   const db = Math.floor(b);
   if (db === da) return 0;
@@ -344,22 +238,22 @@ function bizDaysBetween(a: number, b: number, hol: Set<number>): number {
 // ---------------------------------------------------------------------------
 // Column index
 // ---------------------------------------------------------------------------
-interface ColIndex {
-  map: Map<string, number>;
-}
-function buildIndex(headers: Cell[]): ColIndex {
-  const map = new Map<string, number>();
+                    
+                           
+ 
+function buildIndex(headers        )           {
+  const map = new Map                ();
   for (let i = 0; i < headers.length; i++) {
     const k = normKey(headers[i]);
     if (k && !map.has(k)) map.set(k, i);
   }
   return { map: map };
 }
-function ci(idx: ColIndex, name: string): number {
+function ci(idx          , name        )         {
   const v = idx.map.get(normKey(name));
   return v === undefined ? -1 : v;
 }
-function cell(row: Cell[], idx: ColIndex, name: string): Cell {
+function cell(row        , idx          , name        )       {
   const i = ci(idx, name);
   return i < 0 || i >= row.length ? "" : row[i];
 }
@@ -367,85 +261,85 @@ function cell(row: Cell[], idx: ColIndex, name: string): Cell {
 // ---------------------------------------------------------------------------
 // Ticket model
 // ---------------------------------------------------------------------------
-interface SlaState {
-  due: number;
-  at: number | null;
-  state: string; // met | late | met-nodate | pending | due-today | breached
-  bdOver: number;
-  bdLeft: number;
-  bdTaken: number | null;
-}
-interface Action {
-  code: string;
-  text: string;
-  sev: number; // 1 critical, 2 warning, 3 info
-  who: string; // owner | arietis | ops
-}
-interface Ticket {
-  rowIndex: number;
-  id: number;
-  submitted: number | null;
-  ownerEmail: string;   // Forms submitter (My Tickets = created by me)
-  ownerName: string;
-  assignee: string;     // Owner Email (digest recipient), defaults to submitter
-  dept: string;
-  clinic: string;
-  patient: string;
-  mrn: string;
-  urgency: string;
-  source: string;
-  taskTypes: string[];
-  amount: number | null;
-  notes: string;
-  attachments: string;
-  status: string;
-  firstReplyDate: number | null;
-  outreachDate: number | null;
-  resolutionDate: number | null;
-  falseVerif: string;
-  serviceRecovery: string;
-  errorSource: string;
-  outcome: string;
-  ehr: boolean;
-  link: string;
-  convId: string;
-  sentAt: number | null;
-  firstReplyAt: number | null;
-  lastReplyAt: number | null;
-  replyCount: number;
-  cc: string[];
-  updBy: string;
-  updAt: number | null;
-  closedAt: number | null;
-  followUpAt: number | null;
-  conflicts: string;
-  workNotes: string;
-  opsFlag: string;
-  opsReason: string;
-  opsBy: string;
-  opsAt: number | null;
-  commitment: string;
-  followUpDue: number | null;
-  reviewNotes: string;
-  reviewedAt: number | null;
-  opsEscalated: boolean;
-  opsWhy: string[];
-  // derived
-  isOpen: boolean;
-  stage: string;
-  receipt: SlaState;
-  resolution: SlaState;
-  lastActivity: number;
-  ageBD: number;
-  actions: Action[];
-  flags: string[];
-  topSev: number;
-}
+                    
+              
+                    
+                                                                            
+                 
+                 
+                         
+ 
+                  
+               
+               
+                                               
+                                       
+ 
+                  
+                   
+             
+                           
+                                                                       
+                    
+                                                                                
+               
+                 
+                  
+              
+                  
+                 
+                      
+                        
+                
+                      
+                 
+                                
+                              
+                                
+                     
+                          
+                      
+                  
+               
+               
+                 
+                        
+                              
+                             
+                     
+               
+                
+                       
+                          
+                            
+                    
+                    
+                  
+                    
+                
+                       
+                     
+                             
+                      
+                            
+                        
+                   
+            
+                  
+                
+                    
+                       
+                       
+                
+                    
+                  
+                 
+ 
 
-function splitList(v: Cell): string[] {
+function splitList(v      )           {
   return norm(v).split(/[;,]/).map((x) => x.trim()).filter((x) => x.length > 0);
 }
-function normUrgency(v: Cell): string {
+function normUrgency(v      )         {
   const s = norm(v).replace(/\*/g, "").trim();
   if (!s) return "Normal";
   const k = s.toLowerCase();
@@ -453,25 +347,25 @@ function normUrgency(v: Cell): string {
   if (k.indexOf("high") === 0) return "High";
   return s;
 }
-function toNum(v: Cell): number | null {
+function toNum(v      )                {
   if (typeof v === "number") return v;
   const s = norm(v).replace(/[$,]/g, "");
   if (!s) return null;
   const n = parseFloat(s);
   return isNaN(n) ? null : n;
 }
-function toBool(v: Cell): boolean {
+function toBool(v      )          {
   if (typeof v === "boolean") return v;
   const k = normKey(v);
   return k === "true" || k === "yes" || k === "1" || k === "x";
 }
 
-function rowToTicket(row: Cell[], idx: ColIndex, rowIndex: number): Ticket | null {
+function rowToTicket(row        , idx          , rowIndex        )                {
   const idRaw = cell(row, idx, COL.id);
   const id = toNum(idRaw);
   if (id === null) return null;
   const status = norm(cell(row, idx, COL.status)) || STATUS.submitted;
-  const t: Ticket = {
+  const t         = {
     rowIndex: rowIndex,
     id: id,
     submitted: toSerial(cell(row, idx, COL.submitted)),
@@ -533,32 +427,32 @@ function rowToTicket(row: Cell[], idx: ColIndex, rowIndex: number): Ticket | nul
   return t;
 }
 
-interface EvalCtx {
-  now: number;
-  hol: Set<number>;
-  receiptDays: number;
-  resolutionDays: number;
-  staleDays: number;
-}
+                   
+              
+                   
+                      
+                         
+                    
+ 
 
-function isClosedStatus(s: string): boolean {
+function isClosedStatus(s        )          {
   const k = normKey(s);
   for (const c of CLOSED_STATUSES) if (normKey(c) === k) return true;
   return k.indexOf("closed") === 0 || k.indexOf("resolved") === 0;
 }
-function stageOf(status: string): string {
+function stageOf(status        )         {
   const k = normKey(status);
   if (isClosedStatus(status)) return "Closed";
   if (k.indexOf("pending patient call") >= 0) return "Pending call";
   if (k.indexOf("confirmed") >= 0) return "With Arietis";
   return "Awaiting receipt";
 }
-const STAGES: string[] = ["Awaiting receipt", "With Arietis", "Pending call", "Closed"];
+const STAGES           = ["Awaiting receipt", "With Arietis", "Pending call", "Closed"];
 
-function slaFor(start: number, days: number, at: number | null, doneNoDate: boolean, ctx: EvalCtx): SlaState {
+function slaFor(start        , days        , at               , doneNoDate         , ctx         )           {
   const due = addBizDays(start, days, ctx.hol);
   const today = Math.floor(ctx.now);
-  const st: SlaState = { due: due, at: at, state: "pending", bdOver: 0, bdLeft: 0, bdTaken: null };
+  const st           = { due: due, at: at, state: "pending", bdOver: 0, bdLeft: 0, bdTaken: null };
   if (at !== null) {
     st.state = Math.floor(at) <= due ? "met" : "late";
     st.bdTaken = Math.max(0, bizDaysBetween(start, at, ctx.hol));
@@ -577,11 +471,11 @@ function slaFor(start: number, days: number, at: number | null, doneNoDate: bool
   return st;
 }
 
-function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
+function evaluateTicket(t        , ctx         )         {
   const start = t.submitted !== null ? t.submitted : ctx.now;
   t.isOpen = !isClosedStatus(t.status);
   t.stage = stageOf(t.status);
-  const why: string[] = [];
+  const why           = [];
   const fk = normKey(t.opsFlag);
   if (fk === "yes") why.push(t.opsReason ? "Escalated: " + t.opsReason : "Escalated by ops");
   if (t.urgency === "Critical") why.push("Critical");
@@ -593,14 +487,14 @@ function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
   const rcptByStatus = t.stage !== "Awaiting receipt";
   t.receipt = slaFor(start, ctx.receiptDays, rcptAt, rcptByStatus, ctx);
 
-  let resAt: number | null = null;
+  let resAt                = null;
   if (!t.isOpen) resAt = t.resolutionDate !== null ? t.resolutionDate : t.closedAt !== null ? t.closedAt : t.updAt;
   t.resolution = slaFor(start, ctx.resolutionDays, resAt, !t.isOpen, ctx);
 
   t.lastActivity = Math.max(start, t.updAt || 0, t.lastReplyAt || 0, t.sentAt || 0, t.followUpAt || 0, t.outreachDate || 0);
   t.ageBD = Math.max(0, bizDaysBetween(start, t.isOpen ? ctx.now : (resAt !== null ? resAt : ctx.now), ctx.hol));
 
-  const a: Action[] = [];
+  const a           = [];
   if (t.isOpen) {
     if (t.receipt.state === "breached") {
       a.push({ code: "RCPT_OVERDUE", text: "No receipt from Arietis — " + t.receipt.bdOver + " BD past SLA", sev: 1, who: "arietis" });
@@ -640,7 +534,7 @@ function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
       a.push({ code: "STALE", text: "No activity for " + idle + " BD", sev: 3, who: "owner" });
     }
   } else {
-    const missing: string[] = [];
+    const missing           = [];
     if (t.resolutionDate === null) missing.push("resolution date");
     if (!t.errorSource) missing.push("source of error");
     if (!t.outcome && normKey(t.status) !== normKey(STATUS.closedNoAction)) missing.push("outcome");
@@ -653,7 +547,7 @@ function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
   t.actions = a;
   t.topSev = a.length ? a[0].sev : 9;
 
-  const f: string[] = [];
+  const f           = [];
   if (t.urgency === "Critical") f.push("Critical");
   else if (t.urgency === "High") f.push("High");
   if (normKey(t.serviceRecovery) === "yes") f.push("Service recovery");
@@ -664,8 +558,8 @@ function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
   return t;
 }
 
-function holidaySet(serials: Cell[]): Set<number> {
-  const s = new Set<number>();
+function holidaySet(serials        )              {
+  const s = new Set        ();
   for (const v of serials) {
     const n = toSerial(v);
     if (n !== null) s.add(Math.floor(n));
@@ -673,27 +567,27 @@ function holidaySet(serials: Cell[]): Set<number> {
   return s;
 }
 
-interface Settings {
-  receiptDays: number;
-  resolutionDays: number;
-  staleDays: number;
-  arietisEmail: string;
-  billingInbox: string;
-  leadership: string[];
-  clinicDigest: boolean;
-  arietisDigest: boolean;
-  workbookUrl: string;
-  formUrl: string;
-  digestIds: boolean;
-}
-function readSettings(rows: Cell[][]): Settings {
-  const kv = new Map<string, string>();
+                    
+                      
+                         
+                    
+                       
+                       
+                       
+                        
+                         
+                      
+                  
+                     
+ 
+function readSettings(rows          )           {
+  const kv = new Map                ();
   for (const r of rows) if (r.length >= 2 && !isBlank(r[0])) kv.set(normKey(r[0]).replace(/[^a-z0-9]/g, ""), norm(r[1]));
-  const num = (k: string, d: number): number => {
+  const num = (k        , d        )         => {
     const v = parseFloat(kv.get(k) || "");
     return isNaN(v) ? d : v;
   };
-  const yes = (k: string): boolean => normKey(kv.get(k) || "") === "yes";
+  const yes = (k        )          => normKey(kv.get(k) || "") === "yes";
   return {
     receiptDays: num("receiptslabusinessdays", DEFAULTS.receiptDays),
     resolutionDays: num("resolutionslabusinessdays", DEFAULTS.resolutionDays),
@@ -709,9 +603,9 @@ function readSettings(rows: Cell[][]): Settings {
   };
 }
 
-function loadTickets(headers: Cell[], rows: Cell[][], ctx: EvalCtx): Ticket[] {
+function loadTickets(headers        , rows          , ctx         )           {
   const idx = buildIndex(headers);
-  const out: Ticket[] = [];
+  const out           = [];
   for (let i = 0; i < rows.length; i++) {
     const t = rowToTicket(rows[i], idx, i);
     if (t) out.push(evaluateTicket(t, ctx));
@@ -722,34 +616,34 @@ function loadTickets(headers: Cell[], rows: Cell[][], ctx: EvalCtx): Ticket[] {
 // ---------------------------------------------------------------------------
 // Stats
 // ---------------------------------------------------------------------------
-interface Stats {
-  key: string;
-  total: number;
-  open: number;
-  closed: number;
-  stage: number[]; // counts per STAGES
-  rcptOnTime: number;
-  rcptMiss: number;
-  resOnTime: number;
-  resMiss: number;
-  rcptBdSum: number;
-  rcptBdN: number;
-  resBdSum: number;
-  resBdN: number;
-  breachedOpen: number;
-  amountOpen: number;
-  falseVerif: number;
-  serviceRecovery: number;
-  needsAction: number;
-}
-function emptyStats(key: string): Stats {
+                 
+              
+                
+               
+                 
+                                       
+                     
+                   
+                    
+                  
+                    
+                  
+                   
+                 
+                       
+                     
+                     
+                          
+                      
+ 
+function emptyStats(key        )        {
   return {
     key: key, total: 0, open: 0, closed: 0, stage: [0, 0, 0, 0], rcptOnTime: 0, rcptMiss: 0, resOnTime: 0,
     resMiss: 0, rcptBdSum: 0, rcptBdN: 0, resBdSum: 0, resBdN: 0, breachedOpen: 0, amountOpen: 0,
     falseVerif: 0, serviceRecovery: 0, needsAction: 0,
   };
 }
-function addToStats(s: Stats, t: Ticket): void {
+function addToStats(s       , t        )       {
   s.total += 1;
   if (t.isOpen) s.open += 1;
   else s.closed += 1;
@@ -769,19 +663,19 @@ function addToStats(s: Stats, t: Ticket): void {
   if (normKey(t.serviceRecovery) === "yes") s.serviceRecovery += 1;
   if (t.actions.length) s.needsAction += 1;
 }
-function pct(a: number, b: number): number | null {
+function pct(a        , b        )                {
   return b > 0 ? Math.round((a / b) * 100) : null;
 }
-function computeStats(tickets: Ticket[]): { total: Stats; byClinic: Stats[] } {
+function computeStats(tickets          )                                      {
   const total = emptyStats("All clinics");
-  const m = new Map<string, Stats>();
+  const m = new Map               ();
   for (const t of tickets) {
     addToStats(total, t);
     let s = m.get(t.clinic);
     if (!s) { s = emptyStats(t.clinic); m.set(t.clinic, s); }
     addToStats(s, t);
   }
-  const arr: Stats[] = [];
+  const arr          = [];
   m.forEach((v) => arr.push(v));
   arr.sort((a, b) => b.open - a.open || b.total - a.total || a.key.localeCompare(b.key));
   return { total: total, byClinic: arr };
@@ -790,27 +684,27 @@ function computeStats(tickets: Ticket[]): { total: Stats; byClinic: Stats[] } {
 // ---------------------------------------------------------------------------
 // Raw Data -> Master sync
 // ---------------------------------------------------------------------------
-interface CellChange {
-  col: string;
-  colIndex: number;
-  oldVal: Cell;
-  newVal: Cell;
-  logged: boolean;
-}
-interface RowUpdate {
-  rowIndex: number;
-  id: number;
-  by: string;
-  changes: CellChange[];
-}
-interface SyncPlan {
-  appends: Cell[][];
-  appendIds: number[];
-  updates: RowUpdate[];
-  baselined: number;
-  duplicateIds: number[];
-}
-function cellEq(a: Cell, b: Cell): boolean {
+                      
+              
+                   
+               
+               
+                  
+ 
+                     
+                   
+             
+             
+                        
+ 
+                    
+                    
+                      
+                       
+                    
+                         
+ 
+function cellEq(a      , b      )          {
   if (isBlank(a) && isBlank(b)) return true;
   if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) < 1e-6;
   const na = toNum(a);
@@ -831,13 +725,13 @@ function cellEq(a: Cell, b: Cell): boolean {
  *    submission time / owner / Id are never overwritten.
  */
 function planSync(
-  rawHeaders: Cell[], rawRows: Cell[][], rawLinks: Map<number, string>,
-  masterHeaders: Cell[], masterRows: Cell[][]
-): SyncPlan {
+  rawHeaders        , rawRows          , rawLinks                     ,
+  masterHeaders        , masterRows          
+)           {
   const ri = buildIndex(rawHeaders);
   const mi = buildIndex(masterHeaders);
-  const plan: SyncPlan = { appends: [], appendIds: [], updates: [], baselined: 0, duplicateIds: [] };
-  const masterById = new Map<number, number>();
+  const plan           = { appends: [], appendIds: [], updates: [], baselined: 0, duplicateIds: [] };
+  const masterById = new Map                ();
   for (let i = 0; i < masterRows.length; i++) {
     const id = toNum(cell(masterRows[i], mi, COL.id));
     if (id === null) continue;
@@ -852,13 +746,13 @@ function planSync(
     const rawLink = rawLinks.get(id) || "";
     const mIdx = masterById.get(id);
     if (mIdx === undefined) {
-      const row: Cell[] = [];
+      const row         = [];
       for (let c = 0; c < width; c++) row.push("");
       for (const name of FORM_COLS) {
         const tc = ci(mi, name);
         if (tc >= 0) row[tc] = cell(r, ri, name);
       }
-      const set = (name: string, v: Cell): void => {
+      const set = (name        , v      )       => {
         const tc = ci(mi, name);
         if (tc >= 0) row[tc] = v;
       };
@@ -877,8 +771,8 @@ function planSync(
     if (mIdx < 0) continue; // duplicate raw id already appended in this pass
     const mrow = masterRows[mIdx];
     const synced = toSerial(cell(mrow, mi, COL.rawSynced));
-    const changes: CellChange[] = [];
-    const push = (name: string, v: Cell, logged: boolean): void => {
+    const changes               = [];
+    const push = (name        , v      , logged         )       => {
       const tc = ci(mi, name);
       if (tc < 0) return;
       const old = mrow[tc];
@@ -917,25 +811,25 @@ function planSync(
 // ---------------------------------------------------------------------------
 // Arietis reply logging (used by the inbox flow via Office Script)
 // ---------------------------------------------------------------------------
-interface ReplyResult {
-  matched: boolean;
-  logged: boolean;
-  ticketId: number;
-  reason: string;
-  ownerEmail: string;
-  firstReply: boolean;
-  changes: CellChange[];
-  rowIndex: number;
-}
-function ticketIdFromSubject(subject: string): number | null {
+                       
+                   
+                  
+                   
+                 
+                     
+                      
+                        
+                   
+ 
+function ticketIdFromSubject(subject        )                {
   const m = subject.match(/\[BE-(\d+)\]/i) || subject.match(/Escalation\s*#\s*(\d+)/i) || subject.match(/Ticket\s*#\s*(\d+)/i);
   return m ? parseInt(m[1], 10) : null;
 }
 function planReply(
-  masterHeaders: Cell[], masterRows: Cell[][], conversationId: string, receivedAt: number, subject: string
-): ReplyResult {
+  masterHeaders        , masterRows          , conversationId        , receivedAt        , subject        
+)              {
   const mi = buildIndex(masterHeaders);
-  const res: ReplyResult = { matched: false, logged: false, ticketId: 0, reason: "", ownerEmail: "", firstReply: false, changes: [], rowIndex: -1 };
+  const res              = { matched: false, logged: false, ticketId: 0, reason: "", ownerEmail: "", firstReply: false, changes: [], rowIndex: -1 };
   const conv = norm(conversationId);
   let hit = -1;
   if (conv) {
@@ -958,7 +852,7 @@ function planReply(
   res.ticketId = toNum(cell(row, mi, COL.id)) || 0;
   res.ownerEmail = normKey(cell(row, mi, COL.email));
   if (isClosedStatus(norm(cell(row, mi, COL.status)))) { res.reason = "ticket closed — not logged"; return res; }
-  const push = (name: string, v: Cell, logged: boolean): void => {
+  const push = (name        , v      , logged         )       => {
     const tc = ci(mi, name);
     if (tc < 0) return;
     if (!cellEq(row[tc], v)) res.changes.push({ col: name, colIndex: tc, oldVal: row[tc], newVal: v, logged: logged });
@@ -981,28 +875,28 @@ function planReply(
 // ---------------------------------------------------------------------------
 // Email builders (shared: add-in reminders + Power Automate digests)
 // ---------------------------------------------------------------------------
-interface Email {
-  to: string;
-  cc: string;
-  subject: string;
-  html: string;
-  kind: string;
-}
-interface ActivityRow {
-  at: number;
-  id: number;
-  field: string;
-  oldVal: string;
-  newVal: string;
-  by: string;
-  source: string;
-}
+                 
+             
+             
+                  
+               
+               
+ 
+                       
+             
+             
+                
+                 
+                 
+             
+                 
+ 
 
 const EM = {
   ink: "#1b1f24", muted: "#5b6470", line: "#d9dee4", head: "#f3f5f7",
   red: "#b42318", amber: "#a15c07", green: "#067647", blue: "#1f5f8b",
 };
-function slaText(s: SlaState): string {
+function slaText(s          )         {
   switch (s.state) {
     case "met": return "Met " + fmtShort(s.at);
     case "late": return "Late " + fmtShort(s.at) + " (+" + s.bdOver + " BD)";
@@ -1012,23 +906,23 @@ function slaText(s: SlaState): string {
     default: return "Due " + weekdayName(s.due) + " " + fmtShort(s.due);
   }
 }
-function slaColor(s: SlaState): string {
+function slaColor(s          )         {
   if (s.state === "breached" || s.state === "late") return EM.red;
   if (s.state === "due-today") return EM.amber;
   if (s.state === "met" || s.state === "met-nodate") return EM.green;
   return EM.muted;
 }
-function ticketLabel(t: Ticket): string {
+function ticketLabel(t        )         {
   return "#" + t.id;
 }
 /** Owner/leadership digests omit patient code + MRN by default (repo privacy stance); clinic recaps include them. */
 let SHOW_IDS = false;
-function patientLabel(t: Ticket): string {
+function patientLabel(t        )         {
   if (!SHOW_IDS) return t.taskTypes.length ? t.taskTypes[0].replace(/\s*\(.*\)$/, "") : "Billing escalation";
   return [t.patient, t.mrn ? "MRN " + t.mrn : ""].filter((x) => x).join(" · ");
 }
-function pHdr(): string { return SHOW_IDS ? "Patient" : "Issue"; }
-function hTable(headers: string[], rows: string[][]): string {
+function pHdr()         { return SHOW_IDS ? "Patient" : "Issue"; }
+function hTable(headers          , rows            )         {
   if (!rows.length) return "";
   let h = '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:6px 0 14px">';
   h += "<tr>" + headers.map((x) => '<th align="left" style="background:' + EM.head + ";color:" + EM.muted + ";font-weight:600;padding:6px 8px;border-bottom:1px solid " + EM.line + ';font-size:12px">' + escHtml(x) + "</th>").join("") + "</tr>";
@@ -1037,19 +931,19 @@ function hTable(headers: string[], rows: string[][]): string {
   }
   return h + "</table>";
 }
-function hSection(title: string, body: string, count: number | null): string {
+function hSection(title        , body        , count               )         {
   if (!body) return "";
   const c = count === null ? "" : ' <span style="color:' + EM.muted + ';font-weight:400">(' + count + ")</span>";
   return '<h3 style="font-size:14px;margin:18px 0 4px;color:' + EM.ink + '">' + escHtml(title) + c + "</h3>" + body;
 }
-function hKpis(items: { label: string; value: string; color: string }[]): string {
+function hKpis(items                                                   )         {
   let h = '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:8px 0 6px"><tr>';
   for (const k of items) {
     h += '<td style="padding:8px 14px 8px 0"><div style="font-size:22px;font-weight:700;color:' + k.color + '">' + escHtml(k.value) + '</div><div style="font-size:11px;color:' + EM.muted + ';text-transform:uppercase;letter-spacing:.04em">' + escHtml(k.label) + "</div></td>";
   }
   return h + "</tr></table>";
 }
-function hWrap(title: string, sub: string, body: string, s: Settings): string {
+function hWrap(title        , sub        , body        , s          )         {
   const link = s.workbookUrl
     ? '<p style="margin:18px 0 0"><a href="' + escHtml(s.workbookUrl) + '" style="background:' + EM.blue + ';color:#fff;text-decoration:none;padding:8px 14px;border-radius:4px;font-size:13px;font-weight:600">Open escalation tracker</a></p>'
     : "";
@@ -1059,11 +953,11 @@ function hWrap(title: string, sub: string, body: string, s: Settings): string {
     '<div style="font-size:13px;color:' + EM.muted + '">' + escHtml(sub) + "</div>" + body + link +
     '<p style="font-size:11px;color:' + EM.muted + ';margin-top:20px">SLA: Arietis confirms receipt within ' + s.receiptDays + " business days and resolves within " + s.resolutionDays + " business days of submission. Automated message from the billing escalation tracker.</p></div>";
 }
-function sevDot(sev: number): string {
+function sevDot(sev        )         {
   const c = sev === 1 ? EM.red : sev === 2 ? EM.amber : EM.muted;
   return '<span style="color:' + c + ';font-weight:700">●</span> ';
 }
-function actionRows(ts: Ticket[]): string[][] {
+function actionRows(ts          )             {
   return ts.filter((t) => t.actions.length > 0).map((t) => [
     "<b>" + ticketLabel(t) + "</b>",
     escHtml(t.clinic),
@@ -1071,7 +965,7 @@ function actionRows(ts: Ticket[]): string[][] {
     t.actions.map((a) => sevDot(a.sev) + escHtml(a.text)).join("<br>"),
   ]);
 }
-function openRows(ts: Ticket[]): string[][] {
+function openRows(ts          )             {
   return ts.map((t) => [
     "<b>" + ticketLabel(t) + "</b>" + (t.flags.length ? '<div style="font-size:11px;color:' + EM.red + '">' + escHtml(t.flags.filter((f) => f !== "EHR task").join(" · ")) + "</div>" : ""),
     escHtml(t.clinic),
@@ -1081,21 +975,21 @@ function openRows(ts: Ticket[]): string[][] {
     '<span style="color:' + slaColor(t.resolution) + '">' + escHtml(slaText(t.resolution)) + "</span>",
   ]);
 }
-function sortForAttention(ts: Ticket[]): Ticket[] {
-  const urg = (u: string): number => (u === "Critical" ? 0 : u === "High" ? 1 : 2);
+function sortForAttention(ts          )           {
+  const urg = (u        )         => (u === "Critical" ? 0 : u === "High" ? 1 : 2);
   return ts.slice().sort((a, b) => a.topSev - b.topSev || urg(a.urgency) - urg(b.urgency) || (a.submitted || 0) - (b.submitted || 0));
 }
-function involves(t: Ticket, email: string): boolean {
+function involves(t        , email        )          {
   return t.assignee === email || t.cc.indexOf(email) >= 0;
 }
 
 /** Builds digest emails. mode: "open" | "close" | "weekly". */
-function buildDigests(tickets: Ticket[], activity: ActivityRow[], ctx: EvalCtx, s: Settings, mode: string): Email[] {
+function buildDigests(tickets          , activity               , ctx         , s          , mode        )          {
   SHOW_IDS = s.digestIds;
-  const out: Email[] = [];
+  const out          = [];
   const today = Math.floor(ctx.now);
   const dayLabel = weekdayName(today) + " " + fmtDate(today);
-  const people = new Map<string, string>();
+  const people = new Map                ();
   for (const t of tickets) {
     if (t.assignee && !people.has(t.assignee)) people.set(t.assignee, t.assignee === t.ownerEmail ? t.ownerName : t.assignee);
     for (const c of t.cc) if (c.indexOf("@") > 0 && !people.has(c)) people.set(c, c);
@@ -1124,7 +1018,7 @@ function buildDigests(tickets: Ticket[], activity: ActivityRow[], ctx: EvalCtx, 
       body += hSection("Your open tickets", hTable(["Ticket", "Clinic", pHdr(), "Status", "Receipt (2 BD)", "Resolution (5 BD)"], openRows(open)), open.length);
       out.push({ to: email, cc: "", subject: subject, html: hWrap("Good morning, " + first, dayLabel + " · start-of-day status", body, s), kind: "owner-open" });
     } else if (mode === "close") {
-      const ids = new Set<number>(mine.map((t) => t.id));
+      const ids = new Set        (mine.map((t) => t.id));
       const todays = activity.filter((a) => Math.floor(a.at) === today && ids.has(a.id));
       const closedToday = mine.filter((t) => !t.isOpen && t.resolution.at !== null && Math.floor(t.resolution.at) === today);
       const repliedToday = mine.filter((t) => t.lastReplyAt !== null && Math.floor(t.lastReplyAt) === today);
@@ -1210,10 +1104,10 @@ function buildDigests(tickets: Ticket[], activity: ActivityRow[], ctx: EvalCtx, 
 }
 
 /** Clinic inbox digest (open-of-business), when Settings ClinicDailyDigest = Yes. */
-function buildClinicDigests(tickets: Ticket[], clinicEmails: Map<string, string>, ctx: EvalCtx, s: Settings): Email[] {
+function buildClinicDigests(tickets          , clinicEmails                     , ctx         , s          )          {
   SHOW_IDS = true;
-  const out: Email[] = [];
-  const by = new Map<string, Ticket[]>();
+  const out          = [];
+  const by = new Map                  ();
   for (const t of tickets) if (t.isOpen) {
     const a = by.get(t.clinic) || [];
     a.push(t);
@@ -1230,7 +1124,7 @@ function buildClinicDigests(tickets: Ticket[], clinicEmails: Map<string, string>
 }
 
 /** Follow-up to Arietis listing tickets past SLA (add-in button, or daily when enabled). */
-function buildArietisFollowup(ts: Ticket[], s: Settings, ctx: EvalCtx, from: string): Email | null {
+function buildArietisFollowup(ts          , s          , ctx         , from        )               {
   const list = sortForAttention(ts.filter((t) => t.isOpen && (t.receipt.state === "breached" || t.resolution.state === "breached" || t.receipt.state === "due-today" || t.resolution.state === "due-today")));
   if (!list.length) return null;
   const rows = list.map((t) => [
@@ -1241,7 +1135,7 @@ function buildArietisFollowup(ts: Ticket[], s: Settings, ctx: EvalCtx, from: str
   const body = '<p style="font-size:13px">Hello Arietis team,</p><p style="font-size:13px">The escalations below are at or past our agreed turnaround (receipt confirmation within ' + s.receiptDays + " business days, resolution within " + s.resolutionDays + " business days). Please confirm receipt and provide a status update on each.</p>" +
     hTable(["Ticket", "Patient", "MRN", "Submitted", "Status", "Receipt", "Resolution"], rows) +
     '<p style="font-size:13px">Thank you,<br>' + escHtml(from || "MHS Billing") + "</p>";
-  const cc = new Set<string>([s.billingInbox]);
+  const cc = new Set        ([s.billingInbox]);
   return { to: s.arietisEmail, cc: Array.from(cc).join(";"), subject: "MHS billing escalations — follow-up needed (" + list.length + ")", html: body, kind: "arietis" };
 }
 
@@ -1249,23 +1143,23 @@ function buildArietisFollowup(ts: Ticket[], s: Settings, ctx: EvalCtx, from: str
 // Ops escalation review (shared with Arietis)
 // ---------------------------------------------------------------------------
 /** Open tickets in the ops escalation queue, follow-ups due first. */
-function opsQueue(ts: Ticket[]): Ticket[] {
+function opsQueue(ts          )           {
   return ts.filter((t) => t.opsEscalated && t.isOpen).sort((a, b) =>
     (a.followUpDue === null ? 1e9 : a.followUpDue) - (b.followUpDue === null ? 1e9 : b.followUpDue) ||
     a.topSev - b.topSev || (a.submitted || 0) - (b.submitted || 0));
 }
 /** Vendor-safe columns only: no internal work notes, review notes, owner emails or service-recovery flags. */
-const ARIETIS_EXPORT_HEADERS: string[] = [
+const ARIETIS_EXPORT_HEADERS           = [
   "Ticket #", "Patient", "MRN", "Clinic", "Issue", "Amount", "Submitted", "Business days open", "Status",
   "Receipt SLA", "Resolution SLA", "Last Arietis reply", "Issue details", "Arietis commitment", "Follow-up due",
 ];
-function arietisExportRows(ts: Ticket[]): string[][] {
+function arietisExportRows(ts          )             {
   return ts.map((t) => [
     String(t.id), t.patient, t.mrn, t.clinic, t.taskTypes.join("; "), fmtMoney(t.amount), fmtDate(t.submitted), String(t.ageBD),
     t.status, slaText(t.receipt), slaText(t.resolution), fmtDateTime(t.lastReplyAt), t.notes, t.commitment, fmtDate(t.followUpDue),
   ]);
 }
-function buildArietisReview(ts: Ticket[], s: Settings, ctx: EvalCtx, from: string): Email {
+function buildArietisReview(ts          , s          , ctx         , from        )        {
   const rows = arietisExportRows(ts).map((r) => r.map((c) => escHtml(c)));
   const body = '<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:' + EM.ink + '"><p>Hello Arietis team,</p>' +
     "<p>Below are the MHS patient billing escalations for review (" + ts.length + "). For each, please confirm the current status and the next step with a date.</p>" +
@@ -1281,7 +1175,7 @@ function buildArietisReview(ts: Ticket[], s: Settings, ctx: EvalCtx, from: strin
 // types: int | text | memo | num | dt (date+time, user local) | date (date only) | bool
 // ---------------------------------------------------------------------------
 const DV_PREFIX = "mhs_";
-const DV_TICKET_FIELDS: string[][] = [
+const DV_TICKET_FIELDS             = [
   [COL.id, "mhs_formid", "int", "Ticket #"],
   [COL.start, "mhs_starttime", "dt", "Form start time"],
   [COL.submitted, "mhs_submittedon", "dt", "Submitted on"],
@@ -1330,16 +1224,16 @@ const DV_TICKET_FIELDS: string[][] = [
   [COL.closedAt, "mhs_closedat", "dt", "Closed at"],
   [COL.followUpAt, "mhs_followupat", "date", "Last follow-up"],
 ];
-const DV_ACTIVITY_FIELDS: string[][] = [
+const DV_ACTIVITY_FIELDS             = [
   ["at", "mhs_at", "dt", "When"], ["id", "mhs_ticketnumber", "int", "Ticket #"], ["field", "mhs_name", "text", "Field"],
   ["oldVal", "mhs_oldvalue", "memo", "Old value"], ["newVal", "mhs_newvalue", "memo", "New value"],
   ["by", "mhs_by", "text", "By"], ["source", "mhs_source", "text", "Source"],
 ];
 
 /** US Pacific offset (minutes from UTC) for a UTC instant — used where no browser clock exists (Office Scripts). */
-function pacificOffsetMin(utcMs: number): number {
+function pacificOffsetMin(utcMs        )         {
   const y = new Date(utcMs).getUTCFullYear();
-  const nthSunday = (month: number, n: number): number => {
+  const nthSunday = (month        , n        )         => {
     const first = new Date(Date.UTC(y, month, 1)).getUTCDay();
     return 1 + ((7 - first) % 7) + (n - 1) * 7;
   };
@@ -1348,33 +1242,33 @@ function pacificOffsetMin(utcMs: number): number {
   return utcMs >= start && utcMs < end ? -420 : -480;
 }
 /** Dataverse UTC ISO -> local wall-clock serial. offsetFn gives minutes east of UTC for that instant. */
-function utcIsoToSerial(iso: string, offsetFn: (ms: number) => number): number | null {
+function utcIsoToSerial(iso        , offsetFn                        )                {
   const ms = Date.parse(iso);
   if (isNaN(ms)) return null;
   return (ms + offsetFn(ms) * 60000) / 86400000 + 25569;
 }
 /** Local wall-clock serial -> UTC ISO for Dataverse. */
-function serialToUtcIso(serial: number, offsetFn: (ms: number) => number): string {
+function serialToUtcIso(serial        , offsetFn                        )         {
   const wall = Math.round((serial - 25569) * 86400000);
   let ms = wall - offsetFn(wall) * 60000;
   ms = wall - offsetFn(ms) * 60000; // re-evaluate at the real instant (DST edges)
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
-function serialToIsoDate(serial: number): string {
+function serialToIsoDate(serial        )         {
   const d = serialToDate(Math.floor(serial));
   return d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" + pad2(d.getUTCDate());
 }
 /** Converts one Dataverse value (as returned by the Web API) into the Master cell value. */
-function dvToCell(type: string, v: string | number | boolean | null | undefined, offsetFn: (ms: number) => number): Cell {
+function dvToCell(type        , v                                              , offsetFn                        )       {
   if (v === null || v === undefined || v === "") return type === "bool" ? false : "";
   if (type === "dt") { const s = utcIsoToSerial(String(v), offsetFn); return s === null ? "" : s; }
   if (type === "date") { const s = toSerial(String(v).slice(0, 10)); return s === null ? "" : s; }
   if (type === "bool") return v === true || v === "true";
-  if (type === "int" || type === "num") return typeof v === "number" ? v : (toNum(String(v)) === null ? "" : (toNum(String(v)) as number));
+  if (type === "int" || type === "num") return typeof v === "number" ? v : (toNum(String(v)) === null ? "" : (toNum(String(v))          ));
   return String(v);
 }
 /** Converts a Master cell value into the Dataverse value to PATCH. Blank -> null. */
-function cellToDv(type: string, v: Cell, offsetFn: (ms: number) => number): string | number | boolean | null {
+function cellToDv(type        , v      , offsetFn                        )                                   {
   if (type === "bool") return toBool(v);
   if (isBlank(v)) return null;
   if (type === "dt") { const s = toSerial(v); return s === null ? null : serialToUtcIso(s, offsetFn); }
@@ -1383,29 +1277,29 @@ function cellToDv(type: string, v: Cell, offsetFn: (ms: number) => number): stri
   if (type === "num") return toNum(v);
   return norm(v);
 }
-interface DvRecord {
-  [key: string]: string | number | boolean | null;
-}
+                    
+                                                  
+ 
 /** Dataverse ticket records -> { headers, rows } in Master shape (so every view/rule works unchanged). */
-function dvTicketsToTable(recs: DvRecord[], offsetFn: (ms: number) => number): { headers: string[]; rows: Cell[][]; ids: string[] } {
+function dvTicketsToTable(recs            , offsetFn                        )                                                       {
   const headers = DV_TICKET_FIELDS.map((f) => f[0]);
-  const rows: Cell[][] = [];
-  const ids: string[] = [];
+  const rows           = [];
+  const ids           = [];
   for (const r of recs) {
     rows.push(DV_TICKET_FIELDS.map((f) => dvToCell(f[2], r[f[1]], offsetFn)));
     ids.push(String(r["mhs_ticketid"] || ""));
   }
   return { headers: headers, rows: rows, ids: ids };
 }
-function dvActivityRows(recs: DvRecord[], offsetFn: (ms: number) => number): ActivityRow[] {
+function dvActivityRows(recs            , offsetFn                        )                {
   return recs.map((r) => ({
-    at: (dvToCell("dt", r["mhs_at"], offsetFn) as number) || 0,
+    at: (dvToCell("dt", r["mhs_at"], offsetFn)          ) || 0,
     id: toNum(dvToCell("int", r["mhs_ticketnumber"], offsetFn)) || 0,
-    field: norm(r["mhs_name"] as string), oldVal: norm(r["mhs_oldvalue"] as string), newVal: norm(r["mhs_newvalue"] as string),
-    by: norm(r["mhs_by"] as string), source: norm(r["mhs_source"] as string),
+    field: norm(r["mhs_name"]          ), oldVal: norm(r["mhs_oldvalue"]          ), newVal: norm(r["mhs_newvalue"]          ),
+    by: norm(r["mhs_by"]          ), source: norm(r["mhs_source"]          ),
   }));
 }
-function dvField(col: string): string[] | null {
+function dvField(col        )                  {
   for (const f of DV_TICKET_FIELDS) if (f[0] === col) return f;
   return null;
 }
@@ -1413,13 +1307,13 @@ function dvField(col: string): string[] | null {
 // ---------------------------------------------------------------------------
 // Derived Master columns (written by the add-in sync and the Automation script)
 // ---------------------------------------------------------------------------
-function isoDay(serial: number | null): string {
+function isoDay(serial               )         {
   return serial === null ? "" : serialToIsoDate(serial);
 }
 /** Confirmation Due / Resolution Due / Escalation Flag / Reminder Flags for one evaluated ticket. */
-function derivedColumns(t: Ticket): string[][] {
-  const esc: string[] = [];
-  const rem: string[] = [];
+function derivedColumns(t        )             {
+  const esc           = [];
+  const rem           = [];
   if (t.isOpen) {
     for (const a of t.actions) (a.sev === 1 ? esc : rem).push(a.text);
     if (t.urgency === "Critical") esc.push("Critical priority");
@@ -1438,18 +1332,18 @@ function derivedColumns(t: Ticket): string[][] {
 // AM: all open tickets + "Needs follow-up" (receipt past SLA) + "Resolution overdue" (resolution past SLA).
 // PM: tickets resolved/closed on that local day.
 // ---------------------------------------------------------------------------
-interface ClinicRecap {
-  clinic: string;
-  subject: string;
-  count: number;
-  needsFollowUp: number;
-  resolutionOverdue: number;
-  html: string;
-}
-function recapTable(rows: Ticket[]): string {
+                       
+                 
+                  
+                
+                        
+                            
+               
+ 
+function recapTable(rows          )         {
   if (!rows.length) return "<p>No tickets in this section.</p>";
-  const th = (h: string): string => '<th style="text-align:left;border:1px solid #c4d2ce;padding:8px">' + h + "</th>";
-  const td = (v: string): string => '<td style="border:1px solid #c4d2ce;padding:8px">' + escHtml(v) + "</td>";
+  const th = (h        )         => '<th style="text-align:left;border:1px solid #c4d2ce;padding:8px">' + h + "</th>";
+  const td = (v        )         => '<td style="border:1px solid #c4d2ce;padding:8px">' + escHtml(v) + "</td>";
   return '<table style="border-collapse:collapse;width:100%"><thead><tr>' + ["Date Opened", "MRN", "Patient", "Ticket Number", "Reply Status", "Resolution Status"].map(th).join("") + "</tr></thead><tbody>" +
     rows.map((t) => "<tr>" + [
       fmtDate(t.submitted), t.mrn, t.patient, "#" + t.id,
@@ -1457,10 +1351,10 @@ function recapTable(rows: Ticket[]): string {
       t.isOpen ? t.status + (t.resolution.state === "breached" ? " — " + t.resolution.bdOver + " BD past SLA" : "") : t.status,
     ].map(td).join("") + "</tr>").join("") + "</tbody></table>";
 }
-function buildClinicRecap(tickets: Ticket[], clinic: string, mode: string, ctx: EvalCtx, workbookUrl: string): ClinicRecap {
+function buildClinicRecap(tickets          , clinic        , mode        , ctx         , workbookUrl        )              {
   const today = Math.floor(ctx.now);
   const mine = tickets.filter((t) => t.clinic === clinic);
-  const closedDay = (t: Ticket): number | null => (t.closedAt !== null ? Math.floor(t.closedAt) : t.resolutionDate !== null ? Math.floor(t.resolutionDate) : null);
+  const closedDay = (t        )                => (t.closedAt !== null ? Math.floor(t.closedAt) : t.resolutionDate !== null ? Math.floor(t.resolutionDate) : null);
   const selected = mode === "pm" ? mine.filter((t) => !t.isOpen && closedDay(t) === today) : sortForAttention(mine.filter((t) => t.isOpen));
   const needs = selected.filter((t) => t.isOpen && t.receipt.state === "breached");
   const overdue = selected.filter((t) => t.isOpen && t.resolution.state === "breached");
@@ -1474,3 +1368,7 @@ function buildClinicRecap(tickets: Ticket[], clinic: string, mode: string, ctx: 
     "<p>SLA: " + ctx.receiptDays + " business days for receipt confirmation; " + ctx.resolutionDays + " business days for resolution, counted from submission. Weekends and listed holidays excluded.</p></div>";
   return { clinic: clinic, subject: clinic + " — " + (mode === "pm" ? "End-of-day billing recap" : "AM open billing tickets") + " — " + dayIso, count: selected.length, needsFollowUp: needs.length, resolutionOverdue: overdue.length, html: html };
 }
+
+var api={COL:COL,FORM_COLS:FORM_COLS,EXTRA_COLS:EXTRA_COLS,MASTER_COLS:MASTER_COLS,DATE_COLS:DATE_COLS,DATE_ONLY_COLS:DATE_ONLY_COLS,MASTER_OWNED_COLS:MASTER_OWNED_COLS,NEVER_MERGE_COLS:NEVER_MERGE_COLS,MERGEABLE_COLS:MERGEABLE_COLS,STATUS:STATUS,CLOSED_STATUSES:CLOSED_STATUSES,DEFAULTS:DEFAULTS,norm:norm,normKey:normKey,isBlank:isBlank,serialFromParts:serialFromParts,OFFSET_FN:OFFSET_FN,setOffsetFn:setOffsetFn,toSerial:toSerial,serialToDate:serialToDate,pad2:pad2,fmtDate:fmtDate,fmtShort:fmtShort,fmtTime:fmtTime,fmtDateTime:fmtDateTime,fmtMoney:fmtMoney,weekdayName:weekdayName,escHtml:escHtml,weekday:weekday,isBizDay:isBizDay,addBizDays:addBizDays,bizDaysBetween:bizDaysBetween,buildIndex:buildIndex,ci:ci,cell:cell,splitList:splitList,normUrgency:normUrgency,toNum:toNum,toBool:toBool,rowToTicket:rowToTicket,isClosedStatus:isClosedStatus,stageOf:stageOf,STAGES:STAGES,slaFor:slaFor,evaluateTicket:evaluateTicket,holidaySet:holidaySet,readSettings:readSettings,loadTickets:loadTickets,emptyStats:emptyStats,addToStats:addToStats,pct:pct,computeStats:computeStats,cellEq:cellEq,planSync:planSync,ticketIdFromSubject:ticketIdFromSubject,planReply:planReply,EM:EM,slaText:slaText,slaColor:slaColor,ticketLabel:ticketLabel,SHOW_IDS:SHOW_IDS,patientLabel:patientLabel,pHdr:pHdr,hTable:hTable,hSection:hSection,hKpis:hKpis,hWrap:hWrap,sevDot:sevDot,actionRows:actionRows,openRows:openRows,sortForAttention:sortForAttention,involves:involves,buildDigests:buildDigests,buildClinicDigests:buildClinicDigests,buildArietisFollowup:buildArietisFollowup,opsQueue:opsQueue,ARIETIS_EXPORT_HEADERS:ARIETIS_EXPORT_HEADERS,arietisExportRows:arietisExportRows,buildArietisReview:buildArietisReview,DV_PREFIX:DV_PREFIX,DV_TICKET_FIELDS:DV_TICKET_FIELDS,DV_ACTIVITY_FIELDS:DV_ACTIVITY_FIELDS,pacificOffsetMin:pacificOffsetMin,utcIsoToSerial:utcIsoToSerial,serialToUtcIso:serialToUtcIso,serialToIsoDate:serialToIsoDate,dvToCell:dvToCell,cellToDv:cellToDv,dvTicketsToTable:dvTicketsToTable,dvActivityRows:dvActivityRows,dvField:dvField,isoDay:isoDay,derivedColumns:derivedColumns,recapTable:recapTable,buildClinicRecap:buildClinicRecap};
+globalThis.BE=api;
+})();

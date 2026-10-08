@@ -21,11 +21,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm test
-      - name: Stage public static assets only
+      - name: Generated files are up to date
         run: |
-          mkdir public
-          cp index.html app.js core.js style.css manifest.xml public/
+          node scripts/build.mjs
+          git diff --exit-code -- rules.js office-scripts
+      - run: npm test
+      - name: Stage public static assets only (no data, no docs)
+        run: |
+          mkdir -p public/assets
+          cp index.html app.js core.js rules.js excel.js demo.js style.css manifest.xml public/
+          cp assets/*.png public/assets/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,0 +1,55 @@
+{
+ "settings": [
+  [
+   "ReceiptSLABusinessDays",
+   2,
+   "Business days for Arietis to confirm receipt"
+  ],
+  [
+   "ResolutionSLABusinessDays",
+   5,
+   "Business days for Arietis to resolve"
+  ],
+  [
+   "StaleAfterBusinessDays",
+   3,
+   "Flag open tickets with no activity for this many business days"
+  ],
+  [
+   "ArietisEmail",
+   "patientbilling@arietishealth.com",
+   "Vendor inbox"
+  ],
+  [
+   "BillingInbox",
+   "billing@mindfulhealthsolutions.com",
+   "Shared inbox the flows watch and send from"
+  ],
+  [
+   "LeadershipRecipients",
+   "",
+   "Semicolon-separated; get the weekly rollup + daily past-SLA flags"
+  ],
+  [
+   "ClinicDailyDigest",
+   "No",
+   "Yes = clinic help inboxes get their open list each morning"
+  ],
+  [
+   "ArietisDailyFollowup",
+   "No",
+   "Yes = auto-email Arietis each morning listing tickets at/past SLA"
+  ],
+  [
+   "WorkbookUrl",
+   "",
+   "Paste this workbook's SharePoint link; used for buttons in emails"
+  ],
+  [
+   "FormUrl",
+   "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=8Sq2y8CkOEWdeGKInLNdYw1_rrxVxaFImLkzEWnt0GFUQUtJVFg2VzU5UEowM01JMUgzUUpKMTZPVi4u",
+   "Escalation form"
+  ]
+ ],
+ "holidays": []
+}

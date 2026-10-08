@@ -1,44 +1,106 @@
-# MHS Billing Tickets — Excel add-in
+# MHS Billing Tickets
 
-Built for the supplied workbook: Master, REF, and Raw Data. No patient records are bundled or published. The original XLSX is unchanged to retain its Forms connection and metadata.
+A ticket desk for the **Patient Billing Escalation** Microsoft Form. It is one codebase with two editions:
 
-## Install
-1. Keep the original Forms-linked workbook in its existing Microsoft 365 location. Uploading a downloaded copy does not automatically restore the original Forms live connection.
-2. Download manifest.xml from https://brendannyates.github.io/mhs-billing-excel-addin/manifest.xml . The GitHub repository and Pages hosting are already configured.
-3. Sideload the manifest using Excel's add-in upload option, or have Microsoft 365 IT deploy it centrally. Tenant policy can restrict sideloading.
-4. Open the original linked workbook and launch MHS Billing Tickets.
-5. Launch the add-in, choose **Initialize / refresh** once. It adds operational columns to Master, a hidden _SyncState ledger and Settings. Raw Data and OfficeForms.Table remain untouched. Then choose **Sync submissions**.
-6. Configure name, email, role and assigned clinics in the add-in Settings. These are filters, not authentication or row-level security. Anyone with workbook access can read all its data.
-7. Populate actual vendor-observed holidays in Settings column D. An empty list means weekdays only; holidays are not invented. SLA dates count from the day AFTER vendor submission, due by business close on the 2nd/5th working day. Enter Submitted to Vendor At as a Pacific YYYY-MM-DD date until outbound-message capture is connected.
+| Edition | Runs in | Tickets live in | Guide |
+|---|---|---|---|
+| **Excel add-in** (live) | The Forms-linked workbook: task pane, plus a full-screen window | Master tab (Raw Data is read-only) | this README + [AUTOMATION.md](AUTOMATION.md) |
+| **Power Pages site** | testbilling.powerappsportals.com | Dataverse | [docs/POWER_PAGES.md](docs/POWER_PAGES.md) |
 
-## Clinic Dashboard and profile
-The add-in opens to Clinic Dashboard. Configure name, email, role and, optionally, assigned clinics in Settings. The profile is saved in browser/device local storage; it contains no ticket or patient data. Role is descriptive; workbook permissions govern access. Dashboard defaults to assigned clinics, or to all clinics when none are picked. It can filter My Tickets (tickets you submitted, matched on the Forms Email even if Owner Email is reassigned), a specific clinic, exact MRN or all clinics. Status pills show Unresolved, Awaiting Reply, Past Due, Needs Follow-up, Resolution Overdue and All statuses. Update status opens that ticket's Master editor.
+No patient records are bundled or published. The static host serves code only. Ticket data is read and written inside the user's own Excel or Power Pages session.
 
-Auto-sync checks Raw Data every 30 seconds while the Excel task pane is active. It pauses for a busy operation, active input, open editor or Settings form. Closing/suspending the add-in stops the timer; unattended synchronization still requires the Microsoft 365 flow. Document vendor/staff follow-up in Follow Up At; the Past Due clock also recognizes first/last reply or patient outreach dates.
+## What's in it (v2)
+- **Mine:** tickets you submitted (matched on the Forms Email, even after reassignment) plus tickets you're CC'd on. Filters: Open, Needs action, Closed.
+- **Action:** the needs-action queue (see *SLA rules*), with one-click Arietis follow-up and owner reminder drafts.
+- **Ops:** the escalation queue. It holds Critical tickets, tickets with service recovery, and tickets an ops leader flags; *De-escalate* clears a ticket.
+  - **Review with Arietis:** a share-safe, one-ticket-at-a-time mode for calls. It records Arietis's commitment, a follow-up date and review notes.
+  - **Export for Arietis:** vendor-safe columns only.
+- **Clinic:** pick a clinic (your assigned clinics are marked ★) and see its tickets by stage. **Email clinic** sends the clinic summary.
+- **Stats:** a clinic × stage table, on-time % for receipt and resolution, average business days, $ open, and breakdowns.
+- **MRN:** look up by MRN, patient code or ticket #.
+- **Recaps:** the AM (open) and PM (closed today) clinic email template. Copy it, or draft it to the clinic inbox from REF.
+- **Activity:** the Activity Log. Every import, form edit, conflict and add-in edit, with who, when, old value and new value.
+- **+ New:** the embedded Form.
+- **Ticket rows** are one line: severity dot, ticket #, patient code, MRN, issue, status. Every list has an **MRN / patient / #** filter.
+- **Ticket detail** shows the SLA timeline, actions, the update form, the ops escalation card, any form/Master conflict, the Arietis thread and the history.
+- **Profile** (name, email, role, assigned clinics) is stored on the device. Assigned clinics are the default scope for Action, Ops and Stats.
+- **Full screen** (⛶): opens the same app in a large window. The task pane stays open behind it and does all workbook reads and writes.
 
-Formal SLA: 2 business days for receipt and 5 for resolution. Reminder thresholds are separate: receipt unconfirmed beyond 3 business days from ticket entry; no follow-up beyond 5 business days from latest documented follow-up (or entry); resolution incomplete beyond 6 business days from vendor submission (or entry if unrecorded). Weekends/Settings holidays do not advance these clocks.
+## Install (Excel add-in)
+1. Keep the original Forms-linked workbook in its Microsoft 365 location. A downloaded copy loses the live Forms connection.
+2. Manifest: https://brendannyates.github.io/mhs-billing-excel-addin/manifest.xml . It uses the same add-in ID as v1, so existing installs update in place.
+3. Sideload it (Excel → Add-ins → Upload My Add-in), or have IT deploy it under **Microsoft 365 admin center → Integrated apps**. Tenant policy can restrict sideloading.
+4. Open the workbook and click **Billing Tickets** on the Home tab. On first open it runs **Initialize / refresh** automatically. That step:
+   - adds the operational columns to Master
+   - adds a hidden `_SyncState` ledger
+   - adds the Settings rows and the **Activity Log** sheet
 
-Clinic Recaps generates copyable AM and end-of-day email templates. AM includes all open tickets for the selected clinic, required patient/MRN/date/status fields, Needs follow-up and Resolution Status Overdue sections. PM includes resolved/closed tickets from that Pacific calendar day. Set the cloud workbook URL in Settings for a general Update tickets link; email cannot reliably deep-link directly into a specific Excel add-in ticket. Recipients come from REF clinic emails. Templates are previews; no email is sent from the add-in.
+   Raw Data and `OfficeForms.Table` are never touched.
+5. Fill in your profile when prompted. It's a filter, not authentication: anyone with workbook access can read all of its data.
+6. Put your actual holidays in **Settings column D** (YYYY-MM-DD). An empty list means weekdays only; holidays are never invented. Also set the **Workbook URL**, which email links use.
 
-All ticket edits write to Master. Forms writes to Raw Data through Microsoft's existing connection. The add-in does not scrape Forms or independently export responses. Microsoft 365 flows handle unattended ingestion and sending; see AUTOMATION.md.
+## SLA rules
+- **Clocks start at form submission** (`Completion time`).
+  - **Receipt** is due 2 business days later.
+  - **Resolution** is due 5 business days later.
+  - Weekends and Settings holidays are skipped, and the due day itself is not overdue.
+  - The day counts are set on the Settings sheet.
+- **Receipt stops** at the first Arietis reply recorded by the inbox flow, or when status moves past *MHS - Submitted to Arietis*.
+- **Resolution stops** at the date of resolution. Closing requires a resolution date; the add-in fills in today's date when you pick a closed status. Reopening is blocked.
+- **Needs action:**
+  - past SLA or due today (vendor)
+  - Arietis replied but status not updated
+  - clinic or patient blank
+  - pending patient call with no outreach date
+  - form/Master conflict to review
+  - no activity for 3 business days
+  - closed without resolution date, error source, outcome or false-verification
+  - ops follow-up due or overdue
+- **Written to Master by sync:** Confirmation Due, Resolution Due, Escalation Flag and Reminder Flags.
 
-## Merge policy
-Join by Forms Id. Blank source values never erase Master. Changed nonblank source values update a field only when Master still matches its last observed source value. Initial populated disagreements and simultaneous edits preserve Master and appear as conflicts. Explicit add-in edits mark a field as Master-owned in _SyncState, including intentional clears. Staff can review an imported disagreement in Raw Data and choose the intended value in the Master editor. Direct sheet edits are detectable when their value differs from the baseline, but intentional blank clears should use the add-in.
-
-No row is removed because a response disappeared. Raw Data response 31's missing clinic/MRN/notes remain preserved if already present on Master. Fields already lost from BOTH tabs cannot be reconstructed from blanks.
-
-Owners close tickets in the add-in after entering resolution date and completing inbox reconciliation. Forms close-status changes are flagged rather than automatically closing a ticket. Reopening needs a reviewed workflow. First/last vendor reply times are read-only in the add-in.
+## Sync and merge policy
+- **Timing:** sync runs every 30 seconds while the task pane is open. It pauses while you're editing, and there's also a Sync button. Unattended sync needs the Power Automate worker in AUTOMATION.md.
+- **Matching:** rows join on the Forms `Id`. A new Id is copied to Master and logged as **Imported**.
+- **Blanks:** a blank form value never erases Master. That's why response #31's clinic, MRN and notes survived its edit-link overwrite.
+- **Changed form values:** a changed non-blank value updates Master only if Master still equals the last value seen from the form. Otherwise Master is kept and a **conflict** is flagged on the ticket and in the Activity Log.
+- **Staff-owned fields:** status, the reply, outreach and resolution dates, false verification, service recovery, source of error, outcome and EHR task are filled from the form only while blank. After that they're never overwritten and never flagged.
+- **Add-in edits** mark a field Master-owned in `_SyncState`. A save is refused if someone else changed that field since you opened the ticket.
+- **First and last Arietis reply times** are set by the inbox flow and are read-only in the add-in.
 
 ## Operational limits
-Repository: https://github.com/brendannyates/mhs-billing-excel-addin . The manifest uses the corresponding GitHub Pages host. Microsoft 365 installation and automation connections are separate setup steps.
+- **Concurrency:** Excel has no transactional row locks. Serialize automated writers through one worker flow, and avoid staff saves during a worker write. The add-in detects a changed field before saving, but can't guarantee atomicity against simultaneous co-authoring.
+- **Embedded form:** it can require sign-in or be blocked by iframe policy. Use the **Open in browser** button instead.
+- **Full screen:** needs Office Dialog API 1.2. If your Excel doesn't support it, the button is hidden.
+- **Emails from the add-in** open as Outlook drafts; nothing is sent automatically from the add-in. Scheduled emails come from the flows.
 
-The embedded Forms page can require sign-in or be blocked by browser/tenant iframe policy; the Open form link is provided. Office runtime, live Forms ingestion, tenant deployment, mailbox access and flow execution require Microsoft 365 validation. No live inbox scan or email sending is enabled by this package.
+## Repository layout
+| Path | What |
+|---|---|
+| `index.html`, `app.js`, `style.css` | The app UI (shared by both editions) |
+| `excel.js` | Workbook reads and writes: Initialize, sync (merge + `_SyncState`), save, Activity Log |
+| `core.js` | Sync merge policy (repo v1, unchanged behavior) |
+| `src/rules.ts` → `rules.js` | **Rules engine:** SLA clocks, actions, ops escalation, stats, recaps, email builders, Dataverse mapping |
+| `src/office/*.ts` → `office-scripts/*.ts` | Power Automate scripts (generated; paste-ready) |
+| `pages/`, `scripts/dataverse-setup.mjs` | Power Pages edition: Dataverse data source and the one-time table setup and migration |
+| `demo.js` | Synthetic data when the page is opened outside Excel |
+| `docs/` | Power Pages guide and the build spec |
 
-Excel provides no transactional row locks. Serialize automated writers in one worker flow and avoid staff saves during a sync write. This package detects a changed edited field before saving but cannot guarantee atomicity against simultaneous coauthoring; use a transactional backend if strict concurrent-write guarantees are required.
+## Develop and verify
+```bash
+npm run build   # rules.js, office-scripts/, dist-pages/ from src/ (no dependencies; Node 22.6+)
+npm test        # merge policy, Automation and ClinicRecap scripts, rules engine
+npm run serve   # http://localhost:8080 → demo mode
+```
+CI refuses to publish if the generated files are stale or any test fails.
 
-The app uses no analytics or external ticket-data APIs. Local storage holds only your manually entered profile. Runtime ticket data stays in memory and is read/written using Office.js; the static host serves code. M365 permissions and organization approval govern its use with this workbook.
+**Before rollout, test in a tenant test workbook:**
+- a new response, and an edited response with blanks
+- a leading-zero MRN
+- a staff edit followed by a sync
+- duplicate Id refusal
+- the receipt holiday boundary
+- two replies arriving in reverse order, and an unmatched conversation
+- the reply cutoff after a ticket closes
+- email recipients
 
-## Verify
-Run `npm test` for merge, blank-preservation, conflict, zero-value and SLA tests. Before rollout, use a tenant test workbook: new response, edited response with blanks, leading-zero MRN, staff edit followed by sync, duplicate Id refusal, receipt holiday boundary, two replies in reversed arrival order, unmatched conversation, closed-ticket reply cutoff, and email recipient verification.
-
-Sources: Microsoft Excel add-ins overview https://learn.microsoft.com/en-us/office/dev/add-ins/excel/excel-add-ins-overview ; Forms/Power Automate https://learn.microsoft.com/en-us/power-automate/forms/overview .
+Sources: [Excel add-ins overview](https://learn.microsoft.com/en-us/office/dev/add-ins/excel/excel-add-ins-overview) · [Office dialog API](https://learn.microsoft.com/en-us/office/dev/add-ins/develop/dialog-api-in-office-add-ins) · [Forms + Power Automate](https://learn.microsoft.com/en-us/power-automate/forms/overview)

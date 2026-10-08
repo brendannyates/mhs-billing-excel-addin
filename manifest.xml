@@ -1,7 +1,100 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="TaskPaneApp">
-  <Id>75d15fbd-1c13-47c5-b0c6-17494577fba0</Id><Version>1.0.0.0</Version><ProviderName>MHS</ProviderName><DefaultLocale>en-US</DefaultLocale><DisplayName DefaultValue="MHS Billing Tickets"/><Description DefaultValue="Master ticket editing, clinic dashboards, and safe Forms synchronization."/>
-  <SupportUrl DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/"/>
-  <AppDomains><AppDomain>https://forms.cloud.microsoft</AppDomain></AppDomains><Hosts><Host Name="Workbook"/></Hosts><Requirements><Sets DefaultMinVersion="1.9"><Set Name="ExcelApi"/></Sets></Requirements>
-  <DefaultSettings><SourceLocation DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/index.html"/></DefaultSettings><Permissions>ReadWriteDocument</Permissions>
+<!-- MHS Billing Tickets — Excel add-in manifest (same add-in Id as v1, so existing installs upgrade in place).
+     Install: Excel (web or desktop) > Home > Add-ins > More Add-ins > My Add-ins > Upload My Add-in > this file.
+     Org-wide: Microsoft 365 admin center > Settings > Integrated apps > Upload custom apps. -->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>75d15fbd-1c13-47c5-b0c6-17494577fba0</Id>
+  <Version>2.0.0.0</Version>
+  <ProviderName>MHS</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="MHS Billing Tickets"/>
+  <Description DefaultValue="Billing escalation tickets: Master ticket editing, needs-action queue, ops escalation review, clinic dashboards and recaps, MRN lookup, and safe Forms synchronization. Never edits Raw Data."/>
+  <IconUrl DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/assets/icon-64.png"/>
+  <SupportUrl DefaultValue="https://github.com/brendannyates/mhs-billing-excel-addin"/>
+  <AppDomains>
+    <AppDomain>https://forms.cloud.microsoft</AppDomain>
+    <AppDomain>https://forms.office.com</AppDomain>
+    <AppDomain>https://outlook.office.com</AppDomain>
+    <AppDomain>https://mindfulhealthsolutions-my.sharepoint.com</AppDomain>
+    <AppDomain>https://mindfulhealthsolutions.sharepoint.com</AppDomain>
+    <AppDomain>https://brendannyates.github.io</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Workbook"/>
+  </Hosts>
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="ExcelApi" MinVersion="1.9"/>
+    </Sets>
+  </Requirements>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/index.html"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Workbook">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.Description"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="MhsBilling.Group">
+                <Label resid="Group.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="MhsBilling.Open">
+                  <Label resid="Button.Label"/>
+                  <Supertip>
+                    <Title resid="Button.Label"/>
+                    <Description resid="Button.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>MhsBillingTickets</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16" DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/assets/icon-16.png"/>
+        <bt:Image id="Icon.32" DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/assets/icon-32.png"/>
+        <bt:Image id="Icon.80" DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/brendannyates/mhs-billing-excel-addin"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://brendannyates.github.io/mhs-billing-excel-addin/index.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="GetStarted.Title" DefaultValue="MHS Billing Tickets is ready"/>
+        <bt:String id="Group.Label" DefaultValue="Billing"/>
+        <bt:String id="Button.Label" DefaultValue="Billing Tickets"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="GetStarted.Description" DefaultValue="Open MHS Billing Tickets from the Home tab."/>
+        <bt:String id="Button.Tooltip" DefaultValue="Open the billing ticket desk: my tickets, needs action, ops escalations, clinics, recaps and MRN lookup."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
 </OfficeApp>
