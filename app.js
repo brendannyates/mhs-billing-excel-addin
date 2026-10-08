@@ -612,9 +612,9 @@
     if (t.actions.length) h += `<div class="card"><h4>Needs action</h4><ul class="actions-list">${t.actions.map((a) => `<li><span class="dot sev-${a.sev}"></span><span>${esc(a.label || a.text)} <span class="muted">· ${a.who === "arietis" ? "Arietis" : "owner"}</span></span>${a.days ? odTile(a.days, true) : ""}</li>`).join("")}</ul></div>`;
     h += `<div class="btn-row" style="margin-bottom:10px"><button class="btn sm" data-act="mailTicketArietis">Email Arietis</button><button class="btn sm" data-act="mailTicketOwner">Email owner</button>${t.link ? `<button class="btn sm" data-url="${esc(t.link)}">Form response</button>` : ""}</div>`;
     if (t.opsEscalated) {
-      h += `<div class="card ops-card"><h4>Ops escalation <span class="sp"></span><button type="button" class="btn sm danger" data-act="deescalate">De-escalate</button></h4>
+      h += `<div class="card ops-card"><h4>Ops escalation <span class="sp"></span>${isOpsLeader() ? `<button type="button" class="btn sm danger" data-act="deescalate">De-escalate</button>` : ""}</h4>
         <div style="margin-bottom:8px">${t.opsWhy.map((w) => `<span class="flag amber">${esc(w)}</span>`).join(" ")}${t.opsBy ? ` <span class="muted">· ${esc(t.opsBy)} ${esc(BE.fmtShort(t.opsAt))}</span>` : ""}${t.reviewedAt ? ` <span class="muted">· reviewed ${esc(BE.fmtShort(t.reviewedAt))}</span>` : ""}</div>
-        <div class="form">${[{ col: C.commitment, type: "text", label: "Arietis commitment", full: true }, { col: C.followUpDue, type: "date", label: "Follow-up due" }, { col: C.reviewNotes, type: "area", label: "Review notes", full: true }].map((f) => fieldHtml(t, f)).join("")}</div></div>`;
+        ${isOpsLeader() ? `<div class="form">${[{ col: C.commitment, type: "text", label: "Arietis commitment", full: true }, { col: C.followUpDue, type: "date", label: "Follow-up due" }, { col: C.reviewNotes, type: "area", label: "Review notes", full: true }].map((f) => fieldHtml(t, f)).join("")}</div>` : `<dl class="kv"><dt>Arietis commitment</dt><dd>${esc(t.commitment || "—")}</dd><dt>Follow-up due</dt><dd>${esc(t.followUpDue !== null ? BE.fmtDate(t.followUpDue) : "—")}</dd></dl><p class="muted" style="margin:6px 0 0">Ops leaders review this with Arietis.</p>`}</div>`;
     } else if (t.isOpen) {
       h += `<div class="card"><h4>Ops escalation</h4><div class="toolbar" style="margin:0"><input type="text" id="escReason" placeholder="Reason (internal)" style="flex:1"><button type="button" class="btn sm" data-act="escalate">Escalate to ops</button></div></div>`;
     }
@@ -791,12 +791,13 @@
       ${profile.sso ? `<div class="field full"><span class="lab">Signed in as</span><div><b>${esc(profile.name || profile.email)}</b> <span class="muted">${esc(profile.email)} · from your Microsoft sign-in</span></div><input type="hidden" name="name" value="${esc(profile.name)}"><input type="hidden" name="email" value="${esc(profile.email)}"></div>` : `<div class="field"><label for="pfName">Name</label><input id="pfName" name="name" value="${esc(profile.name)}" required></div>
       <div class="field"><label for="pfEmail">Email (the one Microsoft Forms records)</label><input id="pfEmail" name="email" type="email" list="pfEmails" value="${esc(profile.email)}" required><datalist id="pfEmails">${emails.map((e) => `<option value="${esc(e)}">`).join("")}</datalist></div>`}
       <div class="field full"><label for="pfRole">Role</label><input id="pfRole" name="role" value="${esc(profile.role)}" placeholder="e.g. Practice manager"></div>
+      <div class="field full"><div class="checks"><label><input type="checkbox" name="opsLeader" value="1" ${profile.opsLeader ? "checked" : ""}>I'm an ops leader</label></div><span class="muted" style="font-size:11.5px">Shows the Ops tab: escalation queue, review with Arietis, export and de-escalate.</span></div>
       <div class="field full"><span class="lab">Assigned clinics <span class="muted" style="font-weight:400">— default scope for Action, Ops and Stats; none = all</span></span><div class="checks">${clinics.map((c) => `<label><input type="checkbox" name="clinics" value="${esc(c)}" ${profile.clinics.indexOf(c) >= 0 ? "checked" : ""}>${esc(shortClinic(c))}</label>`).join("") || '<span class="muted">Clinics load from REF once the workbook is open.</span>'}</div></div>
       <div class="field full"><button class="btn primary" type="submit">Save profile</button><span class="muted">Stored on this computer only. Workbook permissions still decide who can see what.</span></div></form>`);
     $("#profileForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      profile = { name: String(fd.get("name")).trim(), email: String(fd.get("email")).trim().toLowerCase(), role: String(fd.get("role") || "").trim(), clinics: fd.getAll("clinics").map(String), sso: !!profile.sso };
+      profile = { name: String(fd.get("name")).trim(), email: String(fd.get("email")).trim().toLowerCase(), role: String(fd.get("role") || "").trim(), clinics: fd.getAll("clinics").map(String), opsLeader: fd.get("opsLeader") === "1", sso: !!profile.sso };
       saveProfile();
       S.me = BE.normKey(profile.email); S.f.scope = "assigned";
       closeSheet(); render(); toast("Profile saved");
@@ -806,7 +807,7 @@
     let st = {};
     try { st = await S.src.status(); } catch (e) { /* ignore */ }
     const ok = (b) => (b ? `<span class="sla ok">✓</span>` : `<span class="sla bad">missing</span>`);
-    sheet("Settings", `<div class="card"><h4>You</h4><div class="toolbar"><span style="flex:1">${esc(meName() || "Not set")} <span class="muted">${esc(S.me)}${profile.role ? " · " + esc(profile.role) : ""}${profile.clinics.length ? " · " + profile.clinics.length + " assigned clinic" + (profile.clinics.length > 1 ? "s" : "") : ""}</span></span><button class="btn sm" data-act="pickMe">Edit profile</button></div></div>
+    sheet("Settings", `<div class="card"><h4>You</h4><div class="toolbar"><span style="flex:1">${esc(meName() || "Not set")} <span class="muted">${esc(S.me)}${profile.role ? " · " + esc(profile.role) : ""}${profile.opsLeader ? " · Ops leader" : ""}${profile.clinics.length ? " · " + profile.clinics.length + " assigned clinic" + (profile.clinics.length > 1 ? "s" : "") : ""}</span></span><button class="btn sm" data-act="pickMe">Edit profile</button></div></div>
       ${S.src.kind === "dataverse" ? `<div class="card"><h4>Data</h4><dl class="kv"><dt>Store</dt><dd>Dataverse (Power Pages)</dd><dt>Tickets</dt><dd>${S.tickets.length}</dd><dt>Loaded</dt><dd>${esc(S.lastSync ? BE.fmtDateTime(S.lastSync) : "—")}</dd></dl><div class="btn-row" style="margin-top:8px"><button class="btn sm primary" data-act="syncNow">Refresh</button></div></div>` : `<div class="card"><h4>Workbook</h4><dl class="kv"><dt>Raw Data (form)</dt><dd>${ok(st.raw)} read-only, never written</dd><dt>Master</dt><dd>${ok(st.master)} ${S.tickets.length} tickets · all edits land here</dd><dt>Sync</dt><dd>Every 30 s while this pane is open · last ${esc(S.lastSync ? BE.fmtDateTime(S.lastSync) : "—")}</dd><dt>Merge rule</dt><dd>Form blanks never erase Master; disagreements are flagged, not overwritten</dd><dt>Email link</dt><dd>${S.settings.workbookUrl ? `<a href="${esc(S.settings.workbookUrl)}" target="_blank" rel="noopener">MHS-only workbook link</a> <span class="muted">(Settings › Workbook URL)</span>` : '<span class="muted">Set on next Initialize</span>'}</dd></dl>
       <div class="btn-row" style="margin-top:8px"><button class="btn sm primary" data-act="syncNow">Sync now</button><button class="btn sm" data-act="init">Initialize / refresh</button></div></div>`}
       <div class="card"><h4>SLA rules</h4><dl class="kv"><dt>Receipt</dt><dd>${S.ctx ? S.ctx.receiptDays : 2} business days from submission</dd><dt>Resolution</dt><dd>${S.ctx ? S.ctx.resolutionDays : 5} business days from submission</dd><dt>Stale</dt><dd>${S.ctx ? S.ctx.staleDays : 3} business days without activity</dd><dt>Holidays</dt><dd>${S.ctx ? S.ctx.hol.size : 0} on the calendar</dd></dl><p class="muted" style="margin:8px 0 0">${S.src.kind === "dataverse" ? "Change these in the Escalation Settings and Holidays tables." : "Change these on the Settings sheet (column A/B values; holidays in column D)."}</p></div>
@@ -856,7 +857,13 @@
     $("#bMine").textContent = mineNeeds || "";
     $("#bAction").textContent = S.tickets.filter((t) => t.topSev === 1).length || "";
     const bo = $("#bOps"); if (bo) bo.textContent = BE.opsQueue(S.tickets).length || "";
+    if (S.tab === "ops" && !isOpsLeader()) S.tab = "mine";
+    $("#tabOps").hidden = !isOpsLeader();
     document.querySelectorAll(".tabs [data-tab]").forEach((b) => b.setAttribute("aria-selected", String(!S.detail && b.dataset.tab === S.tab)));
+    const inMore = MORE_TABS[S.tab];
+    $("#moreLabel").textContent = inMore ? inMore : "More"; $("#btnMore").title = inMore ? "More views — now showing " + inMore : "More views: Action, MRN lookup, Recaps, Activity, + New ticket";
+    $("#btnMore").classList.toggle("active", !!inMore && !S.detail);
+    $("#bMore").textContent = inMore === "Action" ? "" : $("#bAction").textContent;
     const v = $("#view");
     const keepScroll = v.scrollTop;
     let html = "";
@@ -873,6 +880,21 @@
     v.scrollTop = S._resetScroll ? 0 : keepScroll;
     S._resetScroll = false;
   }
+  const MORE_TABS = { action: "Action", lookup: "MRN lookup", recaps: "Recaps", activity: "Activity", new: "+ New ticket" };
+  function isOpsLeader() { return !!profile.opsLeader; }
+  /** Narrow pane: open/close the More dropdown under its button (fixed, so the scrolling tab bar can't clip it). */
+  function toggleMore(force) {
+    const btn = $("#btnMore"), menu = $("#moreMenu");
+    if (getComputedStyle(menu).position === "static") return; // wide sidebar: always open
+    const open = force === undefined ? !menu.classList.contains("open") : force;
+    menu.classList.toggle("open", open); btn.setAttribute("aria-expanded", String(open));
+    if (open) {
+      const r = btn.getBoundingClientRect();
+      menu.style.top = Math.round(r.bottom + 2) + "px";
+      menu.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - menu.offsetWidth - 6))) + "px";
+      const first = menu.querySelector("[aria-selected=true]") || menu.querySelector("button"); if (first) first.focus();
+    }
+  }
   function go(tab) { S.tab = tab; S.detail = null; S.review = null; S._resetScroll = true; store.set("tab", tab); render(); if (tab === "lookup") { const q = $("#q"); if (q) q.focus(); } }
   function openTicket(id) { S.prevScroll = $("#view").scrollTop; S.detail = id; S._resetScroll = true; render(); $("#view").focus(); }
   function back() {
@@ -887,8 +909,10 @@
 
   // ------------------------------------------------------------------ events
   document.addEventListener("click", (e) => {
+    if (e.target.closest("#btnMore")) { toggleMore(); return; }
+    if (!e.target.closest("#moreMenu")) toggleMore(false);
     const tab = e.target.closest(".tabs [data-tab]");
-    if (tab) { if (S.detail !== null && detailEdits().length && !confirmLeave()) return; go(tab.dataset.tab); return; }
+    if (tab) { toggleMore(false); if (S.detail !== null && detailEdits().length && !confirmLeave()) return; go(tab.dataset.tab); return; }
     const op = e.target.closest("[data-open]");
     if (op) { openTicket(+op.dataset.open); return; }
     const sg = e.target.closest("[data-seg]");
@@ -913,7 +937,7 @@
       case "opsCopy": copyRich(S._export.html, S._export.tsv); toast("Copied " + S._export.cur.length + " rows. Paste into Excel, Teams or an email."); break;
       case "opsEmail": { const e = BE.buildArietisReview(S._export.cur, S.settings, S.ctx, meName()); closeSheet(); compose({ to: e.to, cc: e.cc, subject: e.subject, html: e.html }); break; }
       case "escalate": escalate(t, BE.norm(($("#escReason") || {}).value || "")); break;
-      case "deescalate": if (S.me) { S.src.saveTicket(t.id, [{ col: C.opsFlag, value: "Cleared" }], S.me).then(() => { toast("De-escalated #" + t.id); refresh(false, true, true); }); } else pickMe(); break;
+      case "deescalate": if (!isOpsLeader()) break; if (S.me) { S.src.saveTicket(t.id, [{ col: C.opsFlag, value: "Cleared" }], S.me).then(() => { toast("De-escalated #" + t.id); refresh(false, true, true); }); } else pickMe(); break;
       case "save": saveDetail(); break;
       case "revert": render(); break;
       case "pickMe": pickMe(); break;
@@ -948,6 +972,7 @@
   document.addEventListener("keydown", (e) => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && S.detail !== null) { e.preventDefault(); saveDetail(); return; }
+    if (e.key === "Escape" && $("#moreMenu").classList.contains("open")) { toggleMore(false); $("#btnMore").focus(); return; }
     if (e.key === "Escape" && S.review && !$("#overlay")) { S.review = null; render(); return; }
     if (e.key === "Escape") { if ($("#overlay")) closeSheet(); else if (S.detail !== null) back(); return; }
     if (typing) return;

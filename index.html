@@ -6,7 +6,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=Edge">
   <title>MHS Billing Tickets</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=7">
   <link rel="icon" href="assets/icon-32.png">
   <script>
     // Apply the saved theme before first paint (Auto = no attribute; app.js may refine Auto from the Office theme).
@@ -38,23 +38,28 @@
       </div>
     </header>
     <nav class="tabs" role="tablist" aria-label="Views">
-      <button role="tab" data-tab="mine" aria-selected="true" title="My tickets">My Tickets<b class="badge" id="bMine"></b></button>
-      <button role="tab" data-tab="action" title="Needs action">Action<b class="badge warn" id="bAction"></b></button>
-      <button role="tab" data-tab="ops" title="Ops escalations — review with Arietis">Ops<b class="badge" id="bOps"></b></button>
-      <button role="tab" data-tab="clinic">Clinic</button>
+      <button role="tab" data-tab="mine" aria-selected="true" title="Tickets you submitted or are CC'd on">My Tickets<b class="badge" id="bMine"></b></button>
+      <button role="tab" data-tab="clinic" title="Clinic Dashboard — clinic tickets by stage">Clinic<span class="xs-hide"> Dashboard</span></button>
       <button role="tab" data-tab="stats">Stats</button>
-      <button role="tab" data-tab="lookup" title="Lookup by MRN / patient / ticket #">MRN</button>
-      <button role="tab" data-tab="recaps" title="Clinic AM / PM recap emails">Recaps</button>
-      <button role="tab" data-tab="activity" title="Activity log">Activity</button>
-      <button role="tab" data-tab="new">+ New</button>
+      <button role="tab" data-tab="ops" id="tabOps" title="Ops escalations — review with Arietis" hidden>Ops<b class="badge" id="bOps"></b></button>
+      <div class="more">
+        <button type="button" id="btnMore" class="more-btn" aria-label="More views" aria-haspopup="true" aria-expanded="false" aria-controls="moreMenu"><span id="moreLabel" class="more-label">More</span><span class="more-dots" aria-hidden="true">⋯</span><b class="badge warn" id="bMore"></b><span class="caret" aria-hidden="true">▾</span></button>
+        <div id="moreMenu" class="more-menu" role="menu" aria-label="More views">
+          <button role="tab" data-tab="action" title="Needs action">Action<b class="badge warn" id="bAction"></b></button>
+          <button role="tab" data-tab="lookup" title="Lookup by MRN / patient / ticket #">MRN lookup</button>
+          <button role="tab" data-tab="recaps" title="Clinic AM / PM recap emails">Recaps</button>
+          <button role="tab" data-tab="activity" title="Activity log">Activity</button>
+          <button role="tab" data-tab="new">+ New ticket</button>
+        </div>
+      </div>
     </nav>
     <div id="banner" class="banner" hidden></div>
     <main id="view" class="view" tabindex="-1"></main>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
-  <script src="rules.js?v=6"></script>
-  <script src="demo.js?v=6"></script>
-  <script type="module" src="excel.js?v=6"></script>
-  <script type="module" src="app.js?v=6"></script>
+  <script src="rules.js?v=7"></script>
+  <script src="demo.js?v=7"></script>
+  <script type="module" src="excel.js?v=7"></script>
+  <script type="module" src="app.js?v=7"></script>
 </body>
 </html>

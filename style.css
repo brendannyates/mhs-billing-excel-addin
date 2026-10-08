@@ -89,6 +89,19 @@ button { cursor: pointer; }
 .tabs button:hover { color: var(--ink); }
 .tabs button[aria-selected="true"] { color: var(--accent); }
 .tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }
+/* More menu: a dropdown in the narrow pane, an always-open group in the wide sidebar. */
+.more { flex: none; display: flex; }
+.more-btn { height: 36px; padding: 0 8px; border: 0; background: none; color: var(--ink-2); font-weight: 500; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.more-btn:hover, .more-btn[aria-expanded="true"] { color: var(--ink); }
+.more-btn.active { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.more-btn .caret { font-size: 10px; }
+.more-dots { display: none; font-size: 18px; line-height: 1; letter-spacing: 1px; }
+.more-menu { display: none; position: fixed; z-index: 25; min-width: 180px; padding: 4px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r); box-shadow: 0 6px 20px rgba(0,0,0,.18); flex-direction: column; }
+.more-menu.open { display: flex; }
+.more-menu button { height: 34px; padding: 0 10px; border: 0; border-radius: 4px; background: none; color: var(--ink); text-align: left; display: flex; align-items: center; justify-content: space-between; white-space: nowrap; }
+.more-menu button:hover { background: var(--hover); }
+.more-menu button[aria-selected="true"] { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.more-menu button[aria-selected="true"]::after { display: none; }
 .badge { display: inline-block; min-width: 18px; margin-left: 5px; padding: 0 5px; border-radius: 9px; background: var(--gray-bg); color: var(--ink-2); font: 600 11px/18px var(--sans); text-align: center; }
 .badge:empty { display: none; }
 .badge.warn { background: var(--red-bg); color: var(--red); }
@@ -296,5 +309,25 @@ body.web { background: var(--bg); }
   .tabs button[aria-selected="true"] { background: var(--accent-bg); }
   .tabs button[aria-selected="true"]::after { display: none; }
   .view { grid-column: 2; grid-row: 3; min-height: 0; }
+  .more { flex-direction: column; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .more-btn { height: 26px; padding: 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); cursor: default; pointer-events: none; box-shadow: none !important; }
+  .more-btn .caret, .more-btn .badge { display: none; }
+  .more-menu, .more-menu.open { display: flex; position: static; min-width: 0; padding: 0; border: 0; box-shadow: none; background: none; gap: 2px; }
+  .more-menu button { color: var(--ink-2); font-weight: 500; }
   .web .app { max-width: 1240px; }
 }
+
+/* Narrow task pane: keep My Tickets, Clinic Dashboard, Stats, Ops and More on one line. */
+@media (max-width: 899px) {
+  .tabs { gap: 0; padding: 0 2px; }
+  .tabs > button, .more-btn { padding: 0 5px; font-size: 12px; letter-spacing: -.1px; }
+  .tabs > button[aria-selected="true"]::after { left: 5px; right: 5px; }
+  .tabs .badge { min-width: 16px; margin-left: 3px; padding: 0 4px; font-size: 10.5px; line-height: 16px; }
+  .more-btn .badge { min-width: 8px; width: 8px; height: 8px; padding: 0; margin-left: 2px; font-size: 0; border-radius: 50%; background: var(--red); }
+}
+@media (max-width: 899px) {
+  .more-label, .more-btn .caret { display: none; }
+  .more-dots { display: inline; }
+  .more-btn.active .more-dots { color: var(--accent); }
+}
+@media (max-width: 345px) { .xs-hide { display: none; } }

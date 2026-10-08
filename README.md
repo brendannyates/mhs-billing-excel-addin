@@ -10,12 +10,14 @@ A ticket desk for the **Patient Billing Escalation** Microsoft Form. It is one c
 No patient records are bundled or published. The static host serves code only. Ticket data is read and written inside the user's own Excel or Power Pages session.
 
 ## What's in it (v2)
+**Navigation:** the top tabs are **My Tickets**, **Clinic Dashboard** and **Stats**, plus **Ops** for anyone who ticks *I'm an ops leader* in their profile. **More** (⋯ in the narrow pane) holds Action, MRN lookup, Recaps, Activity and + New ticket. In the wide full-screen window, everything is listed in the left sidebar. Anyone can still escalate a ticket to Ops; only ops leaders see the Ops tab, review mode, export and de-escalate.
+
 - **My Tickets:** tickets you submitted (matched on the Forms Email, even after reassignment) plus tickets you're CC'd on. Filters: Open, Needs action, Closed.
 - **Action:** the needs-action queue (see *SLA rules*), with one-click Arietis follow-up and owner reminder drafts.
 - **Ops:** the escalation queue. It holds Critical tickets, tickets with service recovery, and tickets an ops leader flags; *De-escalate* clears a ticket.
   - **Review with Arietis:** a share-safe, one-ticket-at-a-time mode for calls. It records Arietis's commitment, a follow-up date and review notes.
   - **Export for Arietis:** vendor-safe columns only.
-- **Clinic:** pick a clinic (your assigned clinics are marked ★) and see its tickets by stage. **Email clinic** sends the clinic summary.
+- **Clinic Dashboard:** pick a clinic (your assigned clinics are marked ★) and see its tickets by stage. **Email clinic** sends the clinic summary.
 - **Stats:** a clinic × stage table, on-time % for receipt and resolution, average business days, $ open, and breakdowns.
 - **MRN:** look up by MRN, patient code or ticket #.
 - **Recaps:** the AM (open) and PM (closed today) clinic email template. Copy it, or draft it to the clinic inbox from REF.
