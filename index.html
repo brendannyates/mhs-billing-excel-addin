@@ -6,7 +6,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=Edge">
   <title>MHS Billing Tickets</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
   <link rel="icon" href="assets/icon-32.png">
   <script>
     // Apply the saved theme before first paint (Auto = no attribute; app.js may refine Auto from the Office theme).
@@ -21,6 +21,7 @@
         <img class="logo logo-dark" src="assets/logo-dark.png" alt="Mindful Health Solutions — Billing Tickets" width="103" height="34">
       </div>
       <div class="top-actions">
+        <input class="search header-search" type="search" id="find" placeholder="Search tickets" autocomplete="off" aria-label="Search tickets">
         <span id="syncState" class="sync-state" role="status" aria-live="polite"></span>
         <button id="btnFull" class="icon-btn" title="Full screen" aria-label="Full screen" data-act="fullscreen" hidden>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v1H3v4H2zm7 0h5v5h-1V3H9zM2 9h1v4h4v1H2zm11 0h1v5H9v-1h4z"/></svg>
@@ -40,13 +41,12 @@
     <nav class="tabs" role="tablist" aria-label="Views">
       <button role="tab" data-tab="mine" aria-selected="true" title="Tickets you submitted or are CC'd on">My Tickets<b class="badge" id="bMine"></b></button>
       <button role="tab" data-tab="clinic" title="Clinic Dashboard — clinic tickets by stage">Clinic<span class="xs-hide"> Dashboard</span></button>
-      <button role="tab" data-tab="stats">Stats</button>
+      <button role="tab" data-tab="stats">Reports</button>
       <button role="tab" data-tab="ops" id="tabOps" title="Ops escalations — review with Arietis" hidden>Ops<b class="badge" id="bOps"></b></button>
       <div class="more">
         <button type="button" id="btnMore" class="more-btn" aria-label="More views" aria-haspopup="true" aria-expanded="false" aria-controls="moreMenu"><span id="moreLabel" class="more-label">More</span><span class="more-dots" aria-hidden="true">⋯</span><b class="badge warn" id="bMore"></b><span class="caret" aria-hidden="true">▾</span></button>
         <div id="moreMenu" class="more-menu" role="menu" aria-label="More views">
           <button role="tab" data-tab="action" title="Needs action">Action<b class="badge warn" id="bAction"></b></button>
-          <button role="tab" data-tab="lookup" title="Lookup by MRN / patient / ticket #">MRN lookup</button>
           <button role="tab" data-tab="recaps" title="Clinic AM / PM recap emails">Recaps</button>
           <button role="tab" data-tab="activity" title="Activity log">Activity</button>
           <button role="tab" data-tab="new">+ New ticket</button>
@@ -57,9 +57,9 @@
     <main id="view" class="view" tabindex="-1"></main>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
-  <script src="rules.js?v=7"></script>
-  <script src="demo.js?v=7"></script>
-  <script type="module" src="excel.js?v=7"></script>
-  <script type="module" src="app.js?v=7"></script>
+  <script src="rules.js?v=8"></script>
+  <script src="demo.js?v=8"></script>
+  <script type="module" src="excel.js?v=8"></script>
+  <script type="module" src="app.js?v=8"></script>
 </body>
 </html>

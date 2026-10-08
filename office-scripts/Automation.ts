@@ -147,6 +147,7 @@ const COL = {
   sentAt: "Submitted to Vendor At",
   firstReplyAt: "First Reply At",        // flows may instead write the timestamp into "Date of first reply from Arietis:"
   lastReplyAt: "Last Reply At",
+  deletedAt: "Deleted At",
   closedAt: "Closed At",
   confirmDue: "Confirmation Due",
   resolveDue: "Resolution Due",
@@ -181,7 +182,7 @@ const FORM_COLS: string[] = [
 ];
 /** Operational columns appended to Master by Initialize (order = order added). */
 const EXTRA_COLS: string[] = [
-  COL.ownerEmail, COL.convId, COL.sentAt, COL.lastReplyAt, COL.closedAt, COL.confirmDue, COL.resolveDue, COL.escFlag,
+  COL.deletedAt, COL.ownerEmail, COL.convId, COL.sentAt, COL.lastReplyAt, COL.closedAt, COL.confirmDue, COL.resolveDue, COL.escFlag,
   COL.conflicts, COL.followUpAt, COL.reminderFlags, COL.ehr, COL.cc, COL.updBy, COL.updAt,
   COL.workNotes, COL.opsFlag, COL.opsReason, COL.opsBy, COL.opsAt, COL.commitment, COL.followUpDue, COL.reviewNotes, COL.reviewedAt,
 ];
@@ -644,9 +645,9 @@ function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
   } else {
     const missing: string[] = [];
     if (t.resolutionDate === null) missing.push("resolution date");
-    if (!t.errorSource) missing.push("source of error");
+    if (normKey(t.status) !== normKey(STATUS.closedNoAction) && !t.errorSource) missing.push("source of error");
     if (!t.outcome && normKey(t.status) !== normKey(STATUS.closedNoAction)) missing.push("outcome");
-    if (!t.falseVerif) missing.push("false verification Y/N");
+    if (normKey(t.status) !== normKey(STATUS.closedNoAction) && !t.falseVerif) missing.push("false verification Y/N");
     if (missing.length) {
       a.push({ code: "CLOSE_INCOMPLETE", text: "Closed — missing " + missing.join(", "), sev: 3, who: "owner" });
     }
@@ -715,6 +716,7 @@ function loadTickets(headers: Cell[], rows: Cell[][], ctx: EvalCtx): Ticket[] {
   const idx = buildIndex(headers);
   const out: Ticket[] = [];
   for (let i = 0; i < rows.length; i++) {
+    if (!isBlank(cell(rows[i], idx, COL.deletedAt))) continue;
     const t = rowToTicket(rows[i], idx, i);
     if (t) out.push(evaluateTicket(t, ctx));
   }

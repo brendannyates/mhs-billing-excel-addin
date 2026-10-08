@@ -48,7 +48,7 @@
     src: null, ready: false, me: BE.normKey(profile.email), tab: store.get("tab", "mine"), detail: null,
     tickets: [], byId: new Map(), settings: BE.readSettings([]), ctx: null, refCols: new Map(), clinics: [],
     clinicEmails: new Map(), people: new Map(), activity: [], lastSync: null, setupNeeded: false,
-    f: { scope: "assigned", recapMode: "am", recapClinic: "", actq: "", ops: "queue", mine: "open", clinic: store.get("clinic", ""), stage: "open", actWho: "all", actClinic: "", range: "all", q: "", find: "" },
+    f: { scope: "assigned", recapMode: "am", recapClinic: "", actq: "", ops: "queue", mine: "open", clinic: store.get("clinic", ""), sort: "attention", stage: "open", actWho: "all", actClinic: "", range: "all", q: "", find: "" },
   };
 
   // ------------------------------------------------------------------ utils
@@ -271,7 +271,7 @@
     const dot = t.actions.length ? `<span class="dot sev-${t.topSev}" title="${esc(t.actions[0].text)}"></span>` : `<span class="dot none"></span>`;
     const chip = { "Awaiting receipt": "Awaiting", "With Arietis": "With Arietis", "Pending call": "Pt call", Closed: "Closed" }[t.stage] || t.stage;
     const od = Math.max(0, ...t.actions.map((a) => a.days || 0));
-    return `<button class="trow" data-open="${t.id}" aria-label="Ticket ${t.id}, ${esc(issue)}, ${esc(t.stage)}${od ? ", " + dayWord(od) + " overdue" : t.actions.length ? ", needs action" : ""}">${dot}<span class="tid">#${t.id}</span><span class="pid"><span class="pt">${esc(t.patient || "—")}</span><span class="mrn">${esc(t.mrn ? "MRN " + t.mrn : "no MRN")}</span></span><span class="subj">${esc(issue)}</span>${od ? odTile(od) : ""}<span class="chip ${stageClass(t)}" title="${esc(t.status)}">${esc(chip)}</span></button>`;
+    return `<div class="ticket-line"><button class="trow" data-open="${t.id}" aria-label="Ticket ${t.id}, ${esc(issue)}, ${esc(t.stage)}${od ? ", " + dayWord(od) + " overdue" : t.actions.length ? ", needs action" : ""}">${dot}<span class="tid">#${t.id}</span><span class="pid"><span class="pt">${esc(t.patient || "—")}</span><span class="mrn">${esc(t.mrn ? "MRN " + t.mrn : "no MRN")}</span></span><span class="subj">${esc(issue)}</span>${od ? odTile(od) : ""}<span class="chip ${stageClass(t)}" title="${esc(t.status)}">${esc(chip)}</span></button><div class="row-actions">${t.isOpen ? `<button class="btn sm" data-act="quickClose" data-id="${t.id}" title="Close: no corrective action needed">Close</button>` : ""}<button class="btn sm danger" data-act="deleteTicket" data-id="${t.id}" aria-label="Delete ticket ${t.id}">Delete</button></div></div>`;
   }
   function matches(t, q) {
     const k = q.toLowerCase().replace(/^#/, "").replace(/^mrn\s*/, "").trim();
@@ -282,7 +282,7 @@
     if (!ts.length && S.f.find && ["mine", "action", "ops", "clinic"].indexOf(S.tab) >= 0) return `<div class="empty">No match for “${esc(S.f.find)}” here. <button class="linkish" data-act="findAll">Search all tickets</button></div>`;
     if (!ts.length) return `<div class="empty">${esc(emptyMsg || "Nothing here.")}</div>`;
     const lim = (o && o.limit) || 400;
-    return `<div class="list">${ts.slice(0, lim).map((t) => row(t, o)).join("")}</div>${ts.length > lim ? `<div class="muted" style="margin:6px 2px">Showing ${lim} of ${ts.length}. Narrow the filter to see more.</div>` : ""}`;
+    return `<div class="list">${attn(ts).slice(0, lim).map((t) => row(t, o)).join("")}</div>${ts.length > lim ? `<div class="muted" style="margin:6px 2px">Showing ${lim} of ${ts.length}. Narrow the filter to see more.</div>` : ""}`;
   }
   function sec(title, n, extra) {
     return `<div class="sec">${esc(title)}${n === null || n === undefined ? "" : ` <span class="n">${n}</span>`}<span class="sp"></span>${extra || ""}</div>`;
@@ -294,7 +294,19 @@
     const tag = act ? "button" : "div";
     return `<${tag} class="kpi ${cls || ""}" ${act || ""}><div class="v">${esc(value)}</div><div class="k">${esc(label)}</div></${tag}>`;
   }
-  const attn = (ts) => BE.sortForAttention(ts);
+  const attn = (ts) => S.f.sort === "attention" ? BE.sortForAttention(ts) : ts.slice().sort((a,b) => S.f.sort === "oldest" ? (a.submitted || 0)-(b.submitted || 0) : (b.submitted || 0)-(a.submitted || 0));
+  function queueBanner(content) { return `<div class="queue-banner">${content}<span class="sp"></span><select data-filter="sort" aria-label="Sort tickets">${[["attention","Needs attention"],["oldest","Age: oldest first"],["newest","Age: newest first"]].map(([v,l])=>`<option value="${v}" ${S.f.sort===v?"selected":""}>${l}</option>`).join("")}</select><button class="btn primary submit-ticket" data-act="newTicket">+ Submit New Ticket</button></div>`; }
+  async function quickClose(id) {
+    if (!S.me) return pickMe();
+    try { busy(true, "Closing…"); await S.src.saveTicket(id, [{col:C.status,value:BE.STATUS.closedNoAction},{col:C.resolutionDate,value:Math.floor(S.ctx.now)}], S.me); await refresh(false,true,true); toast("Closed #"+id+" · no corrective action needed"); } catch(e) { busy(false); toast(e.message,true); }
+  }
+  function deleteTicket(id) {
+    sheet("Delete ticket #"+id, `<p>Remove this ticket from dashboards, reports and automated queues? Its original submission and audit history will be retained.</p><button class="btn danger" data-act="confirmDelete" data-id="${id}">Delete ticket</button>`);
+  }
+  async function confirmDelete(id) {
+    if (!S.me) return pickMe();
+    try { busy(true,"Deleting…"); await S.src.setup(S.me); await S.src.saveTicket(id,[{col:C.deletedAt,value:nowSerial()}],S.me); closeSheet(); S.detail=null; await refresh(false,true,true); toast("Deleted #"+id); } catch(e) {busy(false); toast(e.message,true);}
+  }
 
   // ------------------------------------------------------------------ views
   function viewMine() {
@@ -311,7 +323,7 @@
     const needAll = attn(mineAll.filter((t) => t.actions.length));
     const closedAll = mineAll.filter((t) => !t.isOpen).sort((a, b) => (b.resolution.at || 0) - (a.resolution.at || 0));
     if (["open", "action", "closed"].indexOf(S.f.mine) < 0) S.f.mine = "open";
-    let h = `<div class="toolbar">${seg("mine", [["open", "Open", openAll.length], ["action", "Needs action", needAll.length], ["closed", "Closed", closedAll.length]], S.f.mine)}</div>`;
+    let h = queueBanner(`${seg("mine", [["open", "Open", openAll.length], ["action", "Needs action", needAll.length], ["closed", "Closed", closedAll.length]], S.f.mine)}`);
     if (S.f.mine === "open") h += list(openAll, {}, "No open tickets.");
     else if (S.f.mine === "action") h += list(needAll, {}, "You're all caught up.");
     else h += list(closedAll, {}, "No closed tickets yet.");
@@ -440,12 +452,12 @@
     const c = S.f.clinic;
     const all = S.tickets.filter((t) => t.clinic === c && matches(t, S.f.find));
     const st = BE.computeStats(all).total;
-    const by = { open: all.filter((t) => t.isOpen), await: all.filter((t) => t.stage === "Awaiting receipt"), with: all.filter((t) => t.stage === "With Arietis"), call: all.filter((t) => t.stage === "Pending call"), closed: all.filter((t) => !t.isOpen), all: all };
+    const by = { open: all.filter((t) => t.isOpen), await: all.filter((t) => t.stage === "Awaiting receipt"), with: all.filter((t) => t.stage === "With Arietis"), call: all.filter((t) => t.stage === "Pending call"), action: all.filter((t) => t.isOpen && t.actions.length), closed: all.filter((t) => !t.isOpen), all: all };
     const email = S.clinicEmails.get(c.toLowerCase()) || "";
     const mineFirst = profile.clinics.filter((x) => S.clinics.indexOf(x) >= 0).concat(S.clinics.filter((x) => profile.clinics.indexOf(x) < 0));
     let h = `<div class="toolbar"><select data-filter="clinic" aria-label="Clinic" style="flex:1">${mineFirst.map((x) => `<option ${x === c ? "selected" : ""}>${esc(x)}${profile.clinics.indexOf(x) >= 0 ? " ★" : ""}</option>`).join("")}</select>
       <button class="btn sm" data-act="mailClinic" ${email && by.open.length ? "" : "disabled"} title="${esc(email)}">Email clinic</button></div>`;
-    h += `<div class="toolbar">${seg("stage", [["open", "Open", by.open.length], ["await", "Awaiting", by.await.length], ["with", "Arietis", by.with.length], ["call", "Pt call", by.call.length], ["closed", "Closed", by.closed.length]], S.f.stage)}</div>`;
+    h += queueBanner(seg("stage", [["open","Open",by.open.length],["action","Needs action",by.action.length],["closed","Closed",by.closed.length]],S.f.stage));
     const ts = S.f.stage === "closed" ? by.closed.sort((a, b) => (b.resolution.at || 0) - (a.resolution.at || 0)) : attn(by[S.f.stage] || by.open);
     h += list(ts, { owner: true }, "No tickets in this view.");
     return h;
@@ -457,6 +469,7 @@
     const today = Math.floor(S.ctx.now);
     if (days === "mtd") { const d = BE.serialToDate(today); const first = BE.serialFromParts(d.getUTCFullYear(), d.getUTCMonth() + 1, 1, 0, 0, 0); ts = ts.filter((t) => (t.submitted || 0) >= first); }
     else if (days) ts = ts.filter((t) => (t.submitted || 0) >= today - days);
+    S.reportTickets = ts;
     const st = BE.computeStats(ts);
     const T = st.total;
     let h = `<div class="toolbar">${scopeSel()}${seg("range", [["all", "All time"], ["90", "90 days"], ["30", "30 days"], ["mtd", "Month to date"]], S.f.range)}<span class="muted">by submit date · ${ts.length} tickets</span></div>`;
@@ -465,16 +478,26 @@
     const pc = (a, b) => { const p = BE.pct(a, b); return p === null ? `<td class="zero">—</td>` : `<td class="${p < 60 ? "bad" : p < 85 ? "warn" : "good"}">${p}%</td>`; };
     const mix = (s) => { const tot = s.total || 1; return `<div class="mix" title="Awaiting ${s.stage[0]} · With Arietis ${s.stage[1]} · Pt call ${s.stage[2]} · Closed ${s.stage[3]}">${["a", "w", "c", "d"].map((k, i) => `<i class="${k}" style="width:${(s.stage[i] / tot) * 100}%"></i>`).join("")}</div>`; };
     const tr = (s, foot) => `<tr ${foot ? "" : `data-clinic="${esc(s.key)}"`}><td>${esc(foot ? "Total" : shortClinic(s.key))}</td><td>${s.open}</td><td class="${cls(s.stage[0])}">${s.stage[0]}</td><td class="${cls(s.stage[1] + s.stage[2])}">${s.stage[1] + s.stage[2]}</td><td class="${cls(s.breachedOpen, true)}">${s.breachedOpen}</td>${pc(s.rcptOnTime, s.rcptOnTime + s.rcptMiss)}${pc(s.resOnTime, s.resOnTime + s.resMiss)}<td>${avg(s.resBdSum, s.resBdN)}</td><td>${s.total}</td><td>${mix(s)}</td></tr>`;
+    h += `<div class="btn-row"><button class="btn" data-act="reportCsv">Export CSV</button><button class="btn" data-act="reportDoc">Export Word · SLA adherence</button></div>`;
     h += sec("By clinic", st.byClinic.length, `<span class="muted">tap a row to open</span>`);
     h += `<div class="tbl-wrap"><table class="grid"><thead><tr><th>Clinic</th><th>Open</th><th title="Awaiting Arietis receipt">Await</th><th title="With Arietis, incl. pending patient call">W/ Ari</th><th>Past SLA</th><th title="Receipt within SLA">Rcpt</th><th title="Resolved within SLA">Res</th><th title="Average business days to resolve">Avg days</th><th>Total</th><th>Mix</th></tr></thead>
       <tbody>${st.byClinic.map((s) => tr(s)).join("")}</tbody><tfoot>${tr(T, true)}</tfoot></table></div>
       <div class="legend"><span><i style="background:var(--amber)"></i>Awaiting receipt</span><span><i style="background:var(--blue)"></i>With Arietis</span><span><i style="background:var(--violet)"></i>Pending pt call</span><span><i style="background:var(--green);opacity:.55"></i>Closed</span></div>`;
+    h += sec("Open by clinic and owner");
+    h += st.byClinic.map(c => { const owners=new Map(); ts.filter(t=>t.isOpen && t.clinic===c.key).forEach(t=>{const k=t.assignee || t.ownerEmail || "Unassigned";owners.set(k,(owners.get(k)||0)+1);}); return `<details class="card"><summary>${esc(shortClinic(c.key))} · ${c.open} open</summary>${Array.from(owners).map(([k,n])=>`<p>${esc(S.people.get(k)||k)} · ${n} open</p>`).join("") || "No open tickets"}</details>`; }).join("");
     const count = (fn) => { const m = new Map(); ts.forEach((t) => fn(t).forEach((k) => k && m.set(k, (m.get(k) || 0) + 1))); return Array.from(m).sort((a, b) => b[1] - a[1]); };
     const bars = (title, arr) => { if (!arr.length) return ""; const mx = arr[0][1]; return `<div>${sec(title, null)}<div class="bars">${arr.slice(0, 8).map(([k, n]) => `<div class="bar-row"><span class="lbl" title="${esc(k)}">${esc(k)}</span><span class="track"><span class="fill" style="display:block;width:${(n / mx) * 100}%"></span></span><span class="n">${n}</span></div>`).join("")}</div></div>`; };
     h += `<div class="two">${bars("Task type", count((t) => t.taskTypes))}${bars("Open by owner", count((t) => (t.isOpen ? [t.ownerName || t.ownerEmail] : [])))}${bars("Source of error (closed)", count((t) => (t.isOpen ? [] : [t.errorSource || "Not recorded"])))}${bars("Outcome (closed)", count((t) => (t.isOpen ? [] : BE.splitList(t.outcome).length ? BE.splitList(t.outcome) : ["Not recorded"])))}${bars("Source of inquiry", count((t) => [t.source || "Not recorded"]))}${bars("Flags", count((t) => t.flags))}</div>`;
     return h;
   }
 
+  function exportReport(doc) {
+    const ts=S.reportTickets || []; const headers=["Ticket","Clinic","Owner","Status","Age (business days)","Last activity","Receipt SLA","Resolution SLA"];
+    const rows=ts.map(t=>[t.id,t.clinic,t.assignee || t.ownerEmail,t.status,t.ageBD,BE.fmtDateTime(t.lastActivity),BE.slaText(t.receipt),BE.slaText(t.resolution)]);
+    const stats=BE.computeStats(ts).total;
+    const body=doc ? `<html><head><meta charset="utf-8"></head><body><h1>Patient Billing Reports</h1><p>Generated ${esc(BE.fmtDateTime(S.ctx.now))} · Range: ${esc(S.f.range)} · Scope: ${esc(S.f.scope)}</p><h2>SLA adherence</h2><p>Receipt: ${pctTxt(stats.rcptOnTime,stats.rcptOnTime+stats.rcptMiss)} (${stats.rcptOnTime} on time / ${stats.rcptMiss} missed). Resolution: ${pctTxt(stats.resOnTime,stats.resOnTime+stats.resMiss)} (${stats.resOnTime} on time / ${stats.resMiss} missed).</p><p>Receipt due within ${S.ctx.receiptDays} business days; resolution within ${S.ctx.resolutionDays}. Configured holidays excluded. Undated outcomes may be excluded from adherence percentages.</p>${BE.hTable(headers,rows.map(r=>r.map(esc)))}</body></html>` : "\ufeff"+[headers,...rows].map(r=>r.map(v=>'"'+String(v ?? "").replace(/"/g,'""').replace(/^[=+@-]/,"'$&")+'"').join(",")).join("\r\n");
+    const url=URL.createObjectURL(new Blob([body],{type:doc?"application/msword":"text/csv;charset=utf-8"})); const a=document.createElement("a"); a.href=url;a.download="billing-report-"+isoDay(S.ctx.now)+(doc?".doc":".csv");a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
   function viewLookup() {
     const q = S.f.q.trim();
     let h = `<input class="search" type="search" id="q" placeholder="MRN, patient code, or ticket #" value="${esc(q)}" autocomplete="off" aria-label="Search by MRN, patient code, or ticket number">`;
@@ -536,9 +559,7 @@
     { col: C.errorSource, type: "select", label: "Source of error", req: true },
     { col: C.falseVerif, type: "select", label: "False verification by Arietis?", req: true },
     { col: C.serviceRecovery, type: "select", label: "Service recovery flag" },
-    { col: C.ehr, type: "check", label: "EHR task created" },
     { col: C.outcome, type: "multi", label: "Outcome", full: true, req: true },
-    { col: C.cc, type: "text", label: "CC (emails, ; separated)", full: true },
     { col: C.workNotes, type: "area", label: "Work notes (internal)", full: true },
   ];
   const DETAILS_EDIT = [
@@ -618,12 +639,12 @@
     } else if (t.isOpen) {
       h += `<div class="card"><h4>Ops escalation</h4><div class="toolbar" style="margin:0"><input type="text" id="escReason" placeholder="Reason (internal)" style="flex:1"><button type="button" class="btn sm" data-act="escalate">Escalate to ops</button></div></div>`;
     }
-    h += `<form class="card" id="editForm" autocomplete="off"><h4>Update</h4><div class="form">${EDIT.map((f) => fieldHtml(t, f)).join("")}</div><div id="closeHint" class="hint" style="margin-top:6px"></div></form>`;
+    h += `<form class="card" id="editForm" autocomplete="off"><h4>Update status</h4><p class="muted">Closed means no corrective action was needed. Resolved requires the resolution details.</p><div class="btn-row"><button type="button" class="btn primary" data-act="save">Update status</button><button type="button" class="btn" data-act="quickClose" data-id="${t.id}" ${t.isOpen ? "" : "disabled"}>Close · no action needed</button></div><div class="form">${EDIT.map((f) => fieldHtml(t, f)).join("")}</div><div id="closeHint" class="hint" style="margin-top:6px"></div></form>`;
     h += `<div class="card"><h4>Escalation</h4><dl class="kv">
       <dt>Clinic</dt><dd>${esc(t.clinic)}</dd><dt>Patient</dt><dd class="mono">${esc(t.patient || "—")}</dd><dt>MRN</dt><dd class="mono">${esc(t.mrn || "—")}</dd>
       <dt>Department</dt><dd>${esc(t.dept || "—")}</dd><dt>Source</dt><dd>${esc(t.source || "—")}</dd><dt>Task type</dt><dd>${esc(t.taskTypes.join("; ") || "—")}</dd>
       <dt>Amount</dt><dd class="tnum">${esc(BE.fmtMoney(t.amount) || "—")}</dd><dt>Notes</dt><dd>${esc(t.notes || "—")}</dd><dt>Attachments</dt><dd>${attach}</dd>
-      <dt>Owner</dt><dd>${esc(t.ownerEmail)}</dd></dl></div>`;
+      <dt>Owner</dt><dd>${esc(t.ownerEmail)}</dd><dt>Last activity</dt><dd>${esc(BE.fmtDateTime(t.lastActivity))}</dd></dl></div>`;
     h += `<details class="card collapse" id="detailsEdit"><summary><h4>Correct escalation details</h4></summary><p class="muted" style="margin:0 0 8px">Edits apply to Master only. Raw Data stays as the form submitted it.</p><div class="form">${DETAILS_EDIT.map((f) => fieldHtml(t, f)).join("")}</div></details>`;
     if (t.conflicts) h += `<div class="card ops-card"><h4>Form / Master conflict</h4><p style="margin:0">${esc(t.conflicts)}</p><p class="muted" style="margin:6px 0 0">The form and Master disagree, so Master was kept. Check Raw Data, set the right value below and save; that clears the flag.</p></div>`;
     h += `<div class="card"><h4>Arietis thread <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· filled by the inbox flow</span></h4><dl class="kv">
@@ -659,7 +680,7 @@
     }
     const edits = detailEdits();
     const statusEl = document.querySelector(`#view [data-col="${CSS.escape(C.status)}"]`);
-    const closing = statusEl && BE.isClosedStatus(statusEl.value);
+    const closing = statusEl && statusEl.value === BE.STATUS.resolved;
     const missing = [];
     document.querySelectorAll('#view .field[data-req="1"]').forEach((f) => {
       const inp = f.querySelector("[data-col]");
@@ -669,14 +690,15 @@
       f.classList.toggle("req", need);
       if (need) missing.push(f.querySelector("label").textContent.replace(" · to close", ""));
     });
-    $("#closeHint").textContent = missing.length ? "To close cleanly, also fill: " + missing.join(", ") + ". You can still save." : "";
+    $("#closeHint").textContent = missing.length ? "To resolve, fill: " + missing.join(", ") + "." : "";
     $("#dirtyMsg").textContent = edits.length ? edits.length + " unsaved change" + (edits.length > 1 ? "s" : "") : "No changes";
-    document.querySelector('[data-act="save"]').disabled = !edits.length;
+    document.querySelectorAll('[data-act="save"]').forEach(b => b.disabled = !edits.length || !!missing.length);
     document.querySelector('[data-act="revert"]').disabled = !edits.length;
   }
   async function saveDetail() {
     const edits = detailEdits();
     if (!edits.length) return;
+    if ($("#closeHint").textContent) { toast($("#closeHint").textContent,true); return; }
     if (!S.me) { pickMe(); toast("Choose your name first so the change is attributed.", true); return; }
     const btn = document.querySelector('[data-act="save"]');
     btn.disabled = true;
@@ -718,23 +740,16 @@
     let body = text;
     const enc = (s) => encodeURIComponent(s || "");
     if (enc(body).length > 1800) body = "[Formatted summary copied — press Ctrl+V here]\n";
-    const url = "https://outlook.office.com/mail/deeplink/compose?to=" + enc(m.to) + (m.cc ? "&cc=" + enc(m.cc) : "") + "&subject=" + enc(m.subject) + "&body=" + enc(body);
+    const url = "mailto:" + enc(m.to) + "?" + (m.cc ? "cc=" + enc(m.cc) + "&" : "") + "subject=" + enc(m.subject) + "&body=" + enc(body);
     S.src.openUrl(url);
-    toast("Draft opened in Outlook. Formatted copy is on your clipboard.");
+    toast("Draft opened in your mail client. Formatted copy is on your clipboard.");
   }
   function ticketBlock(t) {
     return `Ticket #${t.id} — submitted ${BE.fmtDate(t.submitted)} (${t.ageBD} business days ago)\nPatient: ${t.patient || "—"}   MRN: ${t.mrn || "—"}   Clinic: ${t.clinic}\nIssue: ${t.taskTypes.join("; ") || "—"}${t.amount ? " — " + BE.fmtMoney(t.amount) : ""}\nNotes: ${t.notes || "—"}\nCurrent status: ${t.status}`;
   }
   function mailTicketArietis(t) {
-    const cc = [S.settings.billingInbox, S.clinicEmails.get(t.clinic.toLowerCase()), t.ownerEmail].concat(t.cc).filter(Boolean);
-    const due = t.receipt.at === null && t.receipt.state !== "met-nodate"
-      ? `Receipt confirmation was due ${BE.fmtDate(t.receipt.due)} (${S.ctx.receiptDays} business days).`
-      : `Resolution is due ${BE.fmtDate(t.resolution.due)} (${S.ctx.resolutionDays} business days).`;
-    compose({
-      to: S.settings.arietisEmail, cc: Array.from(new Set(cc)).join(";"),
-      subject: `[BE-${t.id}] Status request — patient ${t.patient || ""}${t.mrn ? " (MRN " + t.mrn + ")" : ""}`,
-      text: `Hello Arietis team,\n\nFollowing up on the MHS patient billing escalation below. ${due} Please confirm receipt and send an update.\n\n${ticketBlock(t)}\n\nThank you,\n${meName() || "MHS Billing"}`,
-    });
+    const text = `Hello Arietis team,\n\nPlease provide an update on ticket #${t.id}.\n\nThank you,\n${meName() || "MHS Billing"}`;
+    sheet("Draft follow-up", `<p class="muted">Opens a new email thread in your mail client. To reply in the existing conversation, copy this text into that conversation${t.convId ? " (ID: "+esc(t.convId)+")" : ""}.</p><label for="followupText">Follow-up email text</label><textarea id="followupText" rows="8" style="width:100%">${esc(text)}</textarea><div class="btn-row"><button class="btn primary" data-act="draftFollowup">Open email draft</button><button class="btn" data-act="copyFollowup">Copy text</button></div>`);
   }
   function mailTicketOwner(t) {
     compose({
@@ -812,7 +827,7 @@
       <div class="btn-row" style="margin-top:8px"><button class="btn sm primary" data-act="syncNow">Sync now</button><button class="btn sm" data-act="init">Initialize / refresh</button></div></div>`}
       <div class="card"><h4>SLA rules</h4><dl class="kv"><dt>Receipt</dt><dd>${S.ctx ? S.ctx.receiptDays : 2} business days from submission</dd><dt>Resolution</dt><dd>${S.ctx ? S.ctx.resolutionDays : 5} business days from submission</dd><dt>Stale</dt><dd>${S.ctx ? S.ctx.staleDays : 3} business days without activity</dd><dt>Holidays</dt><dd>${S.ctx ? S.ctx.hol.size : 0} on the calendar</dd></dl><p class="muted" style="margin:8px 0 0">${S.src.kind === "dataverse" ? "Change these in the Escalation Settings and Holidays tables." : "Change these on the Settings sheet (column A/B values; holidays in column D)."}</p></div>
       <div class="card"><h4>Preview my automated emails</h4><div class="btn-row"><button class="btn sm" data-act="preview" data-mode="open">Start of day</button><button class="btn sm" data-act="preview" data-mode="close">End of day</button><button class="btn sm" data-act="preview" data-mode="weekly">Weekly recap</button></div></div>
-      <p class="muted">MHS Billing Tickets v${VERSION} · keys: <span class="kbd">/</span> lookup · <span class="kbd">R</span> sync · <span class="kbd">Esc</span> back</p>`);
+      <p class="muted">MHS Billing Tickets v${VERSION} · keys: <span class="kbd">/</span> search · <span class="kbd">R</span> sync · <span class="kbd">Esc</span> back</p>`);
   }
   function preview(mode) {
     const all = BE.buildDigests(S.tickets, S.activity, S.ctx, S.settings, mode);
@@ -850,6 +865,7 @@
   // ------------------------------------------------------------------ render
   function render() {
     if (!S.ready) return;
+    if (S.tab === "lookup") S.tab="clinic";
     const me = $("#btnMe");
     me.textContent = meName() || "Set name";
     me.classList.toggle("unset", !S.me);
@@ -861,7 +877,7 @@
     $("#tabOps").hidden = !isOpsLeader();
     document.querySelectorAll(".tabs [data-tab]").forEach((b) => b.setAttribute("aria-selected", String(!S.detail && b.dataset.tab === S.tab)));
     const inMore = MORE_TABS[S.tab];
-    $("#moreLabel").textContent = inMore ? inMore : "More"; $("#btnMore").title = inMore ? "More views — now showing " + inMore : "More views: Action, MRN lookup, Recaps, Activity, + New ticket";
+    $("#moreLabel").textContent = inMore ? inMore : "More"; $("#btnMore").title = inMore ? "More views — now showing " + inMore : "More views: Action, Recaps, Activity, + New ticket";
     $("#btnMore").classList.toggle("active", !!inMore && !S.detail);
     $("#bMore").textContent = inMore === "Action" ? "" : $("#bAction").textContent;
     const v = $("#view");
@@ -872,7 +888,7 @@
     else {
       S.detail = null;
       html = { mine: viewMine, action: viewAction, ops: viewOps, clinic: viewClinic, recaps: viewRecaps, activity: viewActivity, stats: viewStats, lookup: viewLookup, new: viewNew }[S.tab]();
-      if (["mine", "action", "ops", "clinic"].indexOf(S.tab) >= 0) html = `<input class="search find" type="search" id="find" placeholder="Filter by MRN, patient code or #" value="${esc(S.f.find)}" autocomplete="off" aria-label="Filter tickets by MRN, patient code or ticket number">` + html;
+
     }
     if (S.tab === "new" && !S.detail && v.querySelector(".formframe")) return; // don't reload the embedded form
     v.innerHTML = html;
@@ -880,7 +896,7 @@
     v.scrollTop = S._resetScroll ? 0 : keepScroll;
     S._resetScroll = false;
   }
-  const MORE_TABS = { action: "Action", lookup: "MRN lookup", recaps: "Recaps", activity: "Activity", new: "+ New ticket" };
+  const MORE_TABS = { action: "Action", recaps: "Recaps", activity: "Activity", new: "+ New ticket" };
   function isOpsLeader() { return !!profile.opsLeader; }
   /** Narrow pane: open/close the More dropdown under its button (fixed, so the scrolling tab bar can't clip it). */
   function toggleMore(force) {
@@ -925,8 +941,16 @@
     if (!a) return;
     const t = S.byId.get(S.detail);
     switch (a.dataset.act) {
+      case "newTicket": go("new"); break;
+      case "quickClose": quickClose(+a.dataset.id); break;
+      case "deleteTicket": deleteTicket(+a.dataset.id); break;
+      case "confirmDelete": confirmDelete(+a.dataset.id); break;
+      case "draftFollowup": compose({to:S.settings.arietisEmail,subject:`[BE-${t.id}] Follow-up`,text:$("#followupText").value}); break;
+      case "copyFollowup": copyRich(esc($("#followupText").value).replace(/\n/g,"<br>"),$("#followupText").value); toast("Follow-up copied"); break;
+      case "reportCsv": exportReport(false); break;
+      case "reportDoc": exportReport(true); break;
       case "back": back(); break;
-      case "findAll": S.f.q = S.f.find; go("lookup"); break;
+      case "findAll": S.f.scope="all"; go("clinic"); break;
       case "reviewStart": { const cur = opsSets()[S.f.ops] || []; S.review = { ids: cur.map((x) => x.id), i: 0 }; S._resetScroll = true; render(); break; }
       case "reviewPrev": S.review.i = Math.max(0, S.review.i - 1); S._resetScroll = true; render(); break;
       case "reviewNext": S.review.i = Math.min(S.review.ids.length - 1, S.review.i + 1); S._resetScroll = true; render(); break;
@@ -976,7 +1000,7 @@
     if (e.key === "Escape" && S.review && !$("#overlay")) { S.review = null; render(); return; }
     if (e.key === "Escape") { if ($("#overlay")) closeSheet(); else if (S.detail !== null) back(); return; }
     if (typing) return;
-    if (e.key === "/") { e.preventDefault(); go("lookup"); }
+    if (e.key === "/") { e.preventDefault(); $("#find").focus(); }
     else if (e.key === "r" || e.key === "R") refresh(true);
   });
   $("#btnSync").addEventListener("click", () => refresh(true));

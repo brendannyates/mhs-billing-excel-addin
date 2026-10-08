@@ -331,3 +331,20 @@ body.web { background: var(--bg); }
   .more-btn.active .more-dots { color: var(--accent); }
 }
 @media (max-width: 345px) { .xs-hide { display: none; } }
+
+/* Queue layout and readable controls at both pane and browser widths. */
+.top { height:auto; min-height:46px; flex-wrap:wrap; padding-top:6px; padding-bottom:6px; }
+.top-actions { flex-wrap:wrap; min-width:0; }
+.header-search { width:clamp(120px,20vw,280px); height:32px; }
+.queue-banner { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:14px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px; }
+.submit-ticket { height:44px; padding:0 20px; font-size:14px; font-weight:600; }
+.ticket-line { display:flex; align-items:center; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+.ticket-line:last-child { border-bottom:0; }
+.ticket-line .trow { flex:1; width:auto; min-width:0; border-bottom:0; }
+.row-actions { display:flex; gap:6px; padding:6px 8px; }
+.grid .zero { color:var(--ink-3); }
+.seg { overflow-x:auto; flex-shrink:0; }
+@media(max-width:600px) { .top-actions { width:100%; } .header-search { flex:1; } .ticket-line .trow { flex-basis:100%; } .row-actions { margin-left:auto; } .queue-banner .seg { width:100%; } .queue-banner .submit-ticket { flex:1; } .timeline { grid-template-columns:1fr; gap:4px; } }
+
+.view { min-width:0; }
+@media(min-width:900px) { .app { grid-template-rows:auto auto minmax(0,1fr); } .banner[hidden] { height:0; } }

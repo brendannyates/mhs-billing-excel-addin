@@ -11,7 +11,7 @@ const LOG = 'Activity Log';
 const LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Ticket Id', 'Field', 'Old value', 'New value', 'Details'];
 // MHS-only link to the live workbook (requires an MHS Microsoft 365 sign-in). Initialize writes it to
 // Settings "Workbook URL" when that cell is blank, so email links work without anyone typing it.
-const DEFAULT_WORKBOOK_URL = 'https://mindfulhealthsolutions-my.sharepoint.com/:x:/g/personal/byates_mymhs_com/IQDxqsZTKhXFT7p_oSUG49IKAS_reuY_Z6SKWgNHnmnk3Eg?e=MURJfQ&nav=MTVfe0I1M0ZDMzgyLThCQkMtNDhEMS04NjkxLThDODNBOEM3RkQ2Rn0';
+const DEFAULT_WORKBOOK_URL = ''; // Set the private workbook link on the workbook Settings sheet.
 const SETTING_DEFAULTS = [
   ['Receipt SLA business days', 2], ['Resolution SLA business days', 5], ['Stale after business days', 3],
   ['Arietis email', 'patientbilling@arietishealth.com'], ['Billing inbox', 'billing@mindfulhealthsolutions.com'],
@@ -200,6 +200,7 @@ export const ExcelSource = {
       const closing = closed(next) && !closed(cur);
       if (closed(cur) && String(next[C.status]) !== String(cur[C.status])) throw Error('Reopening a closed ticket needs a reviewed workflow. Status not changed.');
       if (closing && !filled(next[C.resolutionDate])) throw Error('Enter the date of resolution before closing.');
+      if (closing && next[C.status] === BE.STATUS.resolved && [C.errorSource,C.falseVerif,C.outcome].some(col => !filled(next[col]))) throw Error('Resolved tickets require source of error, false verification and outcome.');
       const now = nowSerial(), sys = [[C.updBy, by], [C.updAt, now]];
       if (closing && !filled(cur[C.closedAt])) sys.push([C.closedAt, now]);
       for (const e of changes) {

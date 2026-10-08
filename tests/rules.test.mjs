@@ -113,3 +113,18 @@ test('settings read from the workbook Settings sheet labels', () => {
   const s = BE.readSettings([['Receipt SLA business days', 3], ['Resolution SLA business days', 7], ['Leadership recipients', 'a@x.com; b@x.com']]);
   assert.equal(s.receiptDays, 3); assert.equal(s.resolutionDays, 7); assert.deepEqual([...s.leadership], ['a@x.com', 'b@x.com']);
 });
+
+test('closed without corrective action does not require resolution classification', () => {
+  const t=one({'Status:':BE.STATUS.closedNoAction,'Date of Resolution:':'2026-10-08'},'2026-10-09');
+  assert.equal(t.isOpen,false);
+  assert.equal(t.actions.some(a=>a.code==='CLOSE_INCOMPLETE'),false);
+  const resolved=one({'Status:':BE.STATUS.resolved,'Date of Resolution:':'2026-10-08'},'2026-10-09');
+  assert.equal(resolved.actions.some(a=>a.code==='CLOSE_INCOMPLETE'),true);
+});
+test('deleted tickets are excluded from report and automation inputs', () => {
+  assert.equal(BE.loadTickets(H,[row({Id:1,'Completion time':'2026-10-02','Deleted At':S('2026-10-08')})],ctx('2026-10-09')).length,0);
+});
+test('last activity reflects a staff update', () => {
+  const t=one({'Last Updated At':'2026-10-08T15:30'},'2026-10-09');
+  assert.equal(t.lastActivity,S('2026-10-08T15:30'));
+});
