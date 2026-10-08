@@ -59,7 +59,7 @@ npm run build && npm test
 ## Working with Brendan
 - Ask rather than assume when a request is ambiguous, and state any assumptions you make.
 - Don't assume anyone's gender from a name.
-- Reply in plain operational language: what changed, and what he needs to do (if anything).
+- Reply in plain operational language: what changed, and what Brendan needs to do (if anything).
 
 ## Skills in this repo
 `.claude/skills/` holds three skills:
