@@ -26,6 +26,16 @@ test('receipt and resolution clocks start at submission; due day is not overdue'
   assert.equal(late.receipt.state, 'breached');
   assert.equal(late.actions[0].code, 'RCPT_OVERDUE');
   assert.equal(late.actions[0].sev, 1);
+  assert.equal(late.actions[0].days, 1);
+  assert.equal(late.actions[0].label, 'No receipt from Arietis');
+  assert.match(late.actions[0].text, /1 day overdue/);
+  assert.equal(BE.slaText(late.receipt), '1 day overdue');
+});
+
+test('no "BD" abbreviation in action text or SLA text', () => {
+  const t = one({ 'Last Updated At': '2026-10-02' }, '2026-10-20');
+  for (const a of t.actions) assert.ok(!/\bBD\b/.test(a.text), a.text);
+  assert.ok(!/\bBD\b/.test(BE.slaText(t.resolution)));
 });
 
 test('first reply stops the receipt clock; confirmed status without a date counts as met', () => {

@@ -317,6 +317,8 @@ interface Action {
   text: string;
   sev: number; // 1 critical, 2 warning, 3 info
   who: string; // owner | arietis | ops
+  label?: string; // short text for UI tiles (no day count)
+  days?: number;  // business days overdue, shown as a tile in the add-in
 }
 interface Ticket {
   rowIndex: number;
@@ -540,10 +542,10 @@ function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
   const a: Action[] = [];
   if (t.isOpen) {
     if (t.receipt.state === "breached") {
-      a.push({ code: "RCPT_OVERDUE", text: "No receipt from Arietis — " + t.receipt.bdOver + " BD past SLA", sev: 1, who: "arietis" });
+      a.push({ code: "RCPT_OVERDUE", text: "No receipt from Arietis — " + daysOverdue(t.receipt.bdOver), label: "No receipt from Arietis", days: t.receipt.bdOver, sev: 1, who: "arietis" });
     }
     if (t.resolution.state === "breached") {
-      a.push({ code: "RES_OVERDUE", text: "Resolution " + t.resolution.bdOver + " BD past SLA — escalate", sev: 1, who: "arietis" });
+      a.push({ code: "RES_OVERDUE", text: "Resolution " + daysOverdue(t.resolution.bdOver) + " — escalate", label: "Resolution overdue — escalate", days: t.resolution.bdOver, sev: 1, who: "arietis" });
     }
     if (t.receipt.state === "due-today") a.push({ code: "RCPT_DUE", text: "Arietis receipt due today", sev: 2, who: "arietis" });
     if (t.resolution.state === "due-today") a.push({ code: "RES_DUE", text: "Resolution due today", sev: 2, who: "arietis" });
@@ -574,7 +576,7 @@ function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
     const idle = bizDaysBetween(t.lastActivity, ctx.now, ctx.hol);
     const hasBreach = a.some((x) => x.sev === 1);
     if (!hasBreach && idle >= ctx.staleDays) {
-      a.push({ code: "STALE", text: "No activity for " + idle + " BD", sev: 3, who: "owner" });
+      a.push({ code: "STALE", text: "No activity for " + idle + " business days", sev: 3, who: "owner" });
     }
   } else {
     const missing: string[] = [];
@@ -939,13 +941,15 @@ const EM = {
   ink: "#1b1f24", muted: "#5b6470", line: "#d9dee4", head: "#f3f5f7",
   red: "#b42318", amber: "#a15c07", green: "#067647", blue: "#1f5f8b",
 };
+/** "1 day overdue" / "3 days overdue" (business days). */
+function daysOverdue(n: number): string { return n + (n === 1 ? " day" : " days") + " overdue"; }
 function slaText(s: SlaState): string {
   switch (s.state) {
     case "met": return "Met " + fmtShort(s.at);
-    case "late": return "Late " + fmtShort(s.at) + " (+" + s.bdOver + " BD)";
+    case "late": return "Late " + fmtShort(s.at) + " (" + daysOverdue(s.bdOver) + ")";
     case "met-nodate": return "Met (no date)";
     case "due-today": return "Due today";
-    case "breached": return "Overdue " + s.bdOver + " BD";
+    case "breached": return daysOverdue(s.bdOver);
     default: return "Due " + weekdayName(s.due) + " " + fmtShort(s.due);
   }
 }
@@ -1058,7 +1062,7 @@ function buildDigests(tickets: Ticket[], activity: ActivityRow[], ctx: EvalCtx, 
         { label: "Due today", value: String(dueToday.length), color: dueToday.length ? EM.amber : EM.ink },
       ]);
       body += hSection("Needs your action", hTable(["Ticket", "Clinic", pHdr(), "Action"], actionRows(needs)), needs.length);
-      body += hSection("Your open tickets", hTable(["Ticket", "Clinic", pHdr(), "Status", "Receipt (2 BD)", "Resolution (5 BD)"], openRows(open)), open.length);
+      body += hSection("Your open tickets", hTable(["Ticket", "Clinic", pHdr(), "Status", "Receipt (" + s.receiptDays + " business days)", "Resolution (" + s.resolutionDays + " business days)"], openRows(open)), open.length);
       out.push({ to: email, cc: "", subject: subject, html: hWrap("Good morning, " + first, dayLabel + " · start-of-day status", body, s), kind: "owner-open" });
     } else if (mode === "close") {
       const ids = new Set<number>(mine.map((t) => t.id));
@@ -1390,8 +1394,8 @@ function recapTable(rows: Ticket[]): string {
   return '<table style="border-collapse:collapse;width:100%"><thead><tr>' + ["Date Opened", "MRN", "Patient", "Ticket Number", "Reply Status", "Resolution Status"].map(th).join("") + "</tr></thead><tbody>" +
     rows.map((t) => "<tr>" + [
       fmtDate(t.submitted), t.mrn, t.patient, "#" + t.id,
-      t.receipt.at !== null ? "Confirmed " + fmtDate(t.receipt.at) : t.receipt.state === "met-nodate" ? "Confirmed" : t.receipt.state === "breached" ? "Awaiting reply — " + t.receipt.bdOver + " BD past SLA" : "Awaiting reply",
-      t.isOpen ? t.status + (t.resolution.state === "breached" ? " — " + t.resolution.bdOver + " BD past SLA" : "") : t.status,
+      t.receipt.at !== null ? "Confirmed " + fmtDate(t.receipt.at) : t.receipt.state === "met-nodate" ? "Confirmed" : t.receipt.state === "breached" ? "Awaiting reply — " + daysOverdue(t.receipt.bdOver) : "Awaiting reply",
+      t.isOpen ? t.status + (t.resolution.state === "breached" ? " — " + daysOverdue(t.resolution.bdOver) : "") : t.status,
     ].map(td).join("") + "</tr>").join("") + "</tbody></table>";
 }
 function buildClinicRecap(tickets: Ticket[], clinic: string, mode: string, ctx: EvalCtx, workbookUrl: string): ClinicRecap {

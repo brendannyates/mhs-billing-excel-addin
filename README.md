@@ -10,7 +10,7 @@ A ticket desk for the **Patient Billing Escalation** Microsoft Form. It is one c
 No patient records are bundled or published. The static host serves code only. Ticket data is read and written inside the user's own Excel or Power Pages session.
 
 ## What's in it (v2)
-- **Mine:** tickets you submitted (matched on the Forms Email, even after reassignment) plus tickets you're CC'd on. Filters: Open, Needs action, Closed.
+- **My Tickets:** tickets you submitted (matched on the Forms Email, even after reassignment) plus tickets you're CC'd on. Filters: Open, Needs action, Closed.
 - **Action:** the needs-action queue (see *SLA rules*), with one-click Arietis follow-up and owner reminder drafts.
 - **Ops:** the escalation queue. It holds Critical tickets, tickets with service recovery, and tickets an ops leader flags; *De-escalate* clears a ticket.
   - **Review with Arietis:** a share-safe, one-ticket-at-a-time mode for calls. It records Arietis's commitment, a follow-up date and review notes.

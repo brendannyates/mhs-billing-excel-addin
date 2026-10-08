@@ -4,7 +4,7 @@
   "use strict";
   const BE = window.BE;
   const C = BE.COL;
-  const VERSION = "2.0.0";
+  const VERSION = "2.1.0";
   const MODE = new URLSearchParams(location.search).get("mode") || "pane";
   const DEFAULT_FORM = "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=8Sq2y8CkOEWdeGKInLNdYw1_rrxVxaFImLkzEWnt0GFUQUtJVFg2VzU5UEowM01JMUgzUUpKMTZPVi4u";
   const REF_MAP = {
@@ -226,16 +226,19 @@
   function slaBadge(t) {
     if (!t.isOpen) {
       const r = t.resolution;
-      if (r.state === "late") return `<span class="sla bad" title="Resolved after the ${S.ctx.resolutionDays}-BD SLA">Closed +${r.bdOver} BD</span>`;
+      if (r.state === "late") return `<span class="sla bad" title="Resolved after the ${S.ctx.resolutionDays}-business-day SLA">Closed ${dayWord(r.bdOver)} late</span>`;
       return `<span class="sla ok">Closed ${r.at !== null ? BE.fmtShort(r.at) : ""}</span>`;
     }
     const useRcpt = t.stage === "Awaiting receipt" && t.receipt.at === null;
     const s = useRcpt ? t.receipt : t.resolution;
     const k = useRcpt ? "Receipt" : "Resolve";
-    if (s.state === "breached") return `<span class="sla bad" title="${k} SLA missed by ${s.bdOver} business days">${k} +${s.bdOver} BD</span>`;
+    if (s.state === "breached") return `<span class="sla bad" title="${k} SLA missed by ${dayWord(s.bdOver)} (business days)">${k} ${dayWord(s.bdOver)} overdue</span>`;
     if (s.state === "due-today") return `<span class="sla warn">${k} due today</span>`;
     return `<span class="sla neutral" title="${k} due ${BE.fmtDate(s.due)}">${k} by ${BE.weekdayName(s.due)} ${BE.fmtShort(s.due)}</span>`;
   }
+  function dayWord(n) { return n + (n === 1 ? " day" : " days"); }
+  /** Red tile: business days past SLA. Compact in narrow rows ("3 days"), full in the detail ("3 days overdue"). */
+  function odTile(n, full) { return `<span class="od${full ? " full" : ""}" title="${dayWord(n)} past SLA (business days)"><b>${n}</b> ${n === 1 ? "day" : "days"}<span class="od-x"> overdue</span></span>`; }
   function flagChips(t) {
     return t.flags.filter((f) => f !== "EHR task").map((f) => `<span class="flag ${f === "Critical" || f === "False verification" ? "red" : f === "High" || f === "Service recovery" ? "amber" : "gray"}">${esc(f === "Service recovery" ? "Svc recovery" : f === "False verification" ? "False verif." : f)}</span>`).join(" ");
   }
@@ -246,7 +249,8 @@
     const issue = shortIssue(t.taskTypes[0]) + (t.taskTypes.length > 1 ? " +" + (t.taskTypes.length - 1) : "");
     const dot = t.actions.length ? `<span class="dot sev-${t.topSev}" title="${esc(t.actions[0].text)}"></span>` : `<span class="dot none"></span>`;
     const chip = { "Awaiting receipt": "Awaiting", "With Arietis": "With Arietis", "Pending call": "Pt call", Closed: "Closed" }[t.stage] || t.stage;
-    return `<button class="trow" data-open="${t.id}" aria-label="Ticket ${t.id}, ${esc(issue)}, ${esc(t.stage)}${t.actions.length ? ", needs action" : ""}">${dot}<span class="tid">#${t.id}</span><span class="pid"><span class="pt">${esc(t.patient || "—")}</span><span class="mrn">${esc(t.mrn ? "MRN " + t.mrn : "no MRN")}</span></span><span class="subj">${esc(issue)}</span><span class="chip ${stageClass(t)}" title="${esc(t.status)}">${esc(chip)}</span></button>`;
+    const od = Math.max(0, ...t.actions.map((a) => a.days || 0));
+    return `<button class="trow" data-open="${t.id}" aria-label="Ticket ${t.id}, ${esc(issue)}, ${esc(t.stage)}${od ? ", " + dayWord(od) + " overdue" : t.actions.length ? ", needs action" : ""}">${dot}<span class="tid">#${t.id}</span><span class="pid"><span class="pt">${esc(t.patient || "—")}</span><span class="mrn">${esc(t.mrn ? "MRN " + t.mrn : "no MRN")}</span></span><span class="subj">${esc(issue)}</span>${od ? odTile(od) : ""}<span class="chip ${stageClass(t)}" title="${esc(t.status)}">${esc(chip)}</span></button>`;
   }
   function matches(t, q) {
     const k = q.toLowerCase().replace(/^#/, "").replace(/^mrn\s*/, "").trim();
@@ -303,7 +307,7 @@
     const warn = attn(ts.filter((t) => t.topSev === 2));
     const info = attn(ts.filter((t) => t.topSev === 3));
     const owners = new Set(ts.filter((t) => t.actions.some((a) => a.who === "owner")).map((t) => t.ownerEmail));
-    let h = `<div class="toolbar">${seg("actWho", [["all", "Everyone"], ["mine", "Mine"]], S.f.actWho)}${scopeSel()}
+    let h = `<div class="toolbar">${seg("actWho", [["all", "Everyone"], ["mine", "My Tickets"]], S.f.actWho)}${scopeSel()}
       <select data-filter="actClinic" aria-label="Clinic"><option value="">All clinics</option>${S.clinics.map((c) => `<option ${c === S.f.actClinic ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>`;
     h += `<div class="btn-row" style="margin-bottom:10px">
       <button class="btn sm primary" data-act="mailArietis" ${vendor.length ? "" : "disabled"}>Email Arietis · ${vendor.length} at/past SLA</button>
@@ -355,7 +359,7 @@
         <div class="review-title"><span class="tid">#${t.id}</span><span class="mono">${esc(t.patient || "—")}</span><span class="mono muted">MRN ${esc(t.mrn || "—")}</span><span class="sp"></span><span class="chip ${stageClass(t)}">${esc(t.stage)}</span></div>
         <dl class="kv">${kv("Clinic", esc(t.clinic))}${kv("Issue", esc(t.taskTypes.join("; ") || "—"))}${kv("Amount", esc(BE.fmtMoney(t.amount) || "—"), "tnum")}
           ${kv("Submitted", esc(BE.fmtDate(t.submitted)) + ` <span class="muted">· ${t.ageBD} business days open</span>`, "tnum")}${kv("Status", esc(t.status))}
-          ${kv("Receipt (" + S.ctx.receiptDays + " BD)", sla(t.receipt))}${kv("Resolution (" + S.ctx.resolutionDays + " BD)", sla(t.resolution))}
+          ${kv("Receipt (" + S.ctx.receiptDays + " business days)", sla(t.receipt))}${kv("Resolution (" + S.ctx.resolutionDays + " business days)", sla(t.resolution))}
           ${kv("Last Arietis reply", esc(BE.fmtDateTime(t.lastReplyAt) || "—"), "tnum")}${kv("Details", esc(t.notes || "—"))}</dl>
       </div>
       <form class="card" id="reviewForm" autocomplete="off"><h4>Outcome of this review</h4><div class="form">
@@ -435,13 +439,13 @@
     const st = BE.computeStats(ts);
     const T = st.total;
     let h = `<div class="toolbar">${scopeSel()}${seg("range", [["all", "All time"], ["90", "90 days"], ["30", "30 days"], ["mtd", "Month to date"]], S.f.range)}<span class="muted">by submit date · ${ts.length} tickets</span></div>`;
-    h += `<div class="kpis">${kpi("Open", T.open)}${kpi("Past SLA", T.breachedOpen, T.breachedOpen ? "bad" : "")}${kpi("Receipt ≤" + S.ctx.receiptDays + " BD", pctTxt(T.rcptOnTime, T.rcptOnTime + T.rcptMiss))}${kpi("Resolved ≤" + S.ctx.resolutionDays + " BD", pctTxt(T.resOnTime, T.resOnTime + T.resMiss))}${kpi("Avg BD to receipt", avg(T.rcptBdSum, T.rcptBdN))}${kpi("Avg BD to resolve", avg(T.resBdSum, T.resBdN))}${kpi("$ open", BE.fmtMoney(T.amountOpen) || "$0")}${kpi("Svc recovery", T.serviceRecovery, T.serviceRecovery ? "warn" : "")}</div>`;
+    h += `<div class="kpis">${kpi("Open", T.open)}${kpi("Past SLA", T.breachedOpen, T.breachedOpen ? "bad" : "")}${kpi("Receipt on time", pctTxt(T.rcptOnTime, T.rcptOnTime + T.rcptMiss))}${kpi("Resolved on time", pctTxt(T.resOnTime, T.resOnTime + T.resMiss))}${kpi("Avg days to receipt", avg(T.rcptBdSum, T.rcptBdN))}${kpi("Avg days to resolve", avg(T.resBdSum, T.resBdN))}${kpi("$ open", BE.fmtMoney(T.amountOpen) || "$0")}${kpi("Svc recovery", T.serviceRecovery, T.serviceRecovery ? "warn" : "")}</div>`;
     const cls = (v, bad) => (v === 0 ? "zero" : bad ? "bad" : "");
     const pc = (a, b) => { const p = BE.pct(a, b); return p === null ? `<td class="zero">—</td>` : `<td class="${p < 60 ? "bad" : p < 85 ? "warn" : "good"}">${p}%</td>`; };
     const mix = (s) => { const tot = s.total || 1; return `<div class="mix" title="Awaiting ${s.stage[0]} · With Arietis ${s.stage[1]} · Pt call ${s.stage[2]} · Closed ${s.stage[3]}">${["a", "w", "c", "d"].map((k, i) => `<i class="${k}" style="width:${(s.stage[i] / tot) * 100}%"></i>`).join("")}</div>`; };
     const tr = (s, foot) => `<tr ${foot ? "" : `data-clinic="${esc(s.key)}"`}><td>${esc(foot ? "Total" : shortClinic(s.key))}</td><td>${s.open}</td><td class="${cls(s.stage[0])}">${s.stage[0]}</td><td class="${cls(s.stage[1] + s.stage[2])}">${s.stage[1] + s.stage[2]}</td><td class="${cls(s.breachedOpen, true)}">${s.breachedOpen}</td>${pc(s.rcptOnTime, s.rcptOnTime + s.rcptMiss)}${pc(s.resOnTime, s.resOnTime + s.resMiss)}<td>${avg(s.resBdSum, s.resBdN)}</td><td>${s.total}</td><td>${mix(s)}</td></tr>`;
     h += sec("By clinic", st.byClinic.length, `<span class="muted">tap a row to open</span>`);
-    h += `<div class="tbl-wrap"><table class="grid"><thead><tr><th>Clinic</th><th>Open</th><th title="Awaiting Arietis receipt">Await</th><th title="With Arietis, incl. pending patient call">W/ Ari</th><th>Past SLA</th><th title="Receipt within SLA">Rcpt</th><th title="Resolved within SLA">Res</th><th title="Avg business days to resolve">Avg BD</th><th>Total</th><th>Mix</th></tr></thead>
+    h += `<div class="tbl-wrap"><table class="grid"><thead><tr><th>Clinic</th><th>Open</th><th title="Awaiting Arietis receipt">Await</th><th title="With Arietis, incl. pending patient call">W/ Ari</th><th>Past SLA</th><th title="Receipt within SLA">Rcpt</th><th title="Resolved within SLA">Res</th><th title="Average business days to resolve">Avg days</th><th>Total</th><th>Mix</th></tr></thead>
       <tbody>${st.byClinic.map((s) => tr(s)).join("")}</tbody><tfoot>${tr(T, true)}</tfoot></table></div>
       <div class="legend"><span><i style="background:var(--amber)"></i>Awaiting receipt</span><span><i style="background:var(--blue)"></i>With Arietis</span><span><i style="background:var(--violet)"></i>Pending pt call</span><span><i style="background:var(--green);opacity:.55"></i>Closed</span></div>`;
     const count = (fn) => { const m = new Map(); ts.forEach((t) => fn(t).forEach((k) => k && m.set(k, (m.get(k) || 0) + 1))); return Array.from(m).sort((a, b) => b[1] - a[1]); };
@@ -574,17 +578,17 @@
   function slaLine(label, s, days) {
     const txt = BE.slaText(s);
     const cls = s.state === "breached" || s.state === "late" ? "bad" : s.state === "due-today" ? "warn" : s.state === "met" || s.state === "met-nodate" ? "ok" : "neutral";
-    return `<span class="lab">${label} <span class="muted">(${days} BD)</span></span><span class="tnum">due ${BE.weekdayName(s.due)} ${BE.fmtDate(s.due)}</span><span class="sla ${cls}">${esc(txt)}</span>`;
+    return `<span class="lab">${label} <span class="muted">(${days} business days)</span></span><span class="tnum">due ${BE.weekdayName(s.due)} ${BE.fmtDate(s.due)}</span><span class="sla ${cls}">${esc(txt)}</span>`;
   }
   function viewDetail(t) {
     const hist = S.activity.filter((a) => a.id === t.id).sort((a, b) => b.at - a.at);
     const link = (u) => `<button class="linkish" data-url="${esc(u)}">${esc(decodeURIComponent(u.split("/").pop().split("?")[0]).slice(0, 48) || "Open")}</button>`;
     const attach = t.attachments ? t.attachments.split(/[;\s]+(?=https?:)/).filter(Boolean).map(link).join("<br>") : "—";
-    let h = `<div class="detail-head"><button class="btn sm" data-act="back" aria-label="Back">←</button><span class="tid">#${t.id}</span><span class="chip ${stageClass(t)}">${esc(t.stage)}</span>${flagChips(t)}<span class="sp"></span><span class="muted tnum">${t.ageBD} BD old</span></div>`;
+    let h = `<div class="detail-head"><button class="btn sm" data-act="back" aria-label="Back">←</button><span class="tid">#${t.id}</span><span class="chip ${stageClass(t)}">${esc(t.stage)}</span>${flagChips(t)}<span class="sp"></span><span class="muted tnum" title="Business days since submission">${dayWord(t.ageBD)} ${t.isOpen ? "open" : "to close"}</span></div>`;
     h += `<div class="card"><div class="timeline">
       <span class="lab">Submitted</span><span class="tnum">${esc(BE.weekdayName(t.submitted || 0) + " " + BE.fmtDate(t.submitted) + " " + BE.fmtTime(t.submitted))}</span><span class="muted">${esc(t.ownerName)}</span>
       ${slaLine("Receipt", t.receipt, S.ctx.receiptDays)}${slaLine("Resolution", t.resolution, S.ctx.resolutionDays)}</div></div>`;
-    if (t.actions.length) h += `<div class="card"><h4>Needs action</h4><ul class="actions-list">${t.actions.map((a) => `<li><span class="dot sev-${a.sev}"></span><span>${esc(a.text)} <span class="muted">· ${a.who === "arietis" ? "Arietis" : "owner"}</span></span></li>`).join("")}</ul></div>`;
+    if (t.actions.length) h += `<div class="card"><h4>Needs action</h4><ul class="actions-list">${t.actions.map((a) => `<li><span class="dot sev-${a.sev}"></span><span>${esc(a.label || a.text)} <span class="muted">· ${a.who === "arietis" ? "Arietis" : "owner"}</span></span>${a.days ? odTile(a.days, true) : ""}</li>`).join("")}</ul></div>`;
     h += `<div class="btn-row" style="margin-bottom:10px"><button class="btn sm" data-act="mailTicketArietis">Email Arietis</button><button class="btn sm" data-act="mailTicketOwner">Email owner</button>${t.link ? `<button class="btn sm" data-url="${esc(t.link)}">Form response</button>` : ""}</div>`;
     if (t.opsEscalated) {
       h += `<div class="card ops-card"><h4>Ops escalation <span class="sp"></span><button type="button" class="btn sm danger" data-act="deescalate">De-escalate</button></h4>
@@ -937,7 +941,33 @@
   $("#btnMe").addEventListener("click", pickMe);
   $("#btnSettings").addEventListener("click", openSettings);
 
+  // ------------------------------------------------------------------ theme (per device: Auto / Light / Dark)
+  // Auto follows Excel's Office theme when Office reports one, otherwise the OS setting (CSS media query).
+  const THEMES = ["auto", "light", "dark"];
+  const THEME_LABEL = { auto: "Auto (follows Excel / system)", light: "Light", dark: "Dark" };
+  function officeThemeIsDark() {
+    try {
+      const bg = Office.context.officeTheme && Office.context.officeTheme.bodyBackgroundColor;
+      const m = /^#?([0-9a-f]{6})$/i.exec(bg || ""); if (!m) return null;
+      const n = parseInt(m[1], 16), lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+      return lum < 0.5;
+    } catch (e) { return null; }
+  }
+  function applyTheme() {
+    const pref = store.get("theme", "auto"), root = document.documentElement;
+    let mode = pref;
+    if (pref === "auto") { const d = typeof Office !== "undefined" ? officeThemeIsDark() : null; mode = d === null ? "" : (d ? "dark" : "light"); }
+    if (mode) root.setAttribute("data-theme", mode); else root.removeAttribute("data-theme");
+    const b = $("#btnTheme"); b.title = "Theme: " + THEME_LABEL[pref]; b.setAttribute("aria-label", b.title);
+  }
+  $("#btnTheme").addEventListener("click", () => {
+    const next = THEMES[(THEMES.indexOf(store.get("theme", "auto")) + 1) % THEMES.length];
+    store.set("theme", next); applyTheme(); toast("Theme: " + THEME_LABEL[next]);
+  });
+  window.addEventListener("storage", (e) => { if (e.key === "be.theme") applyTheme(); }); // keep pane and full-screen window in step
+  applyTheme();
+
   // ------------------------------------------------------------------ start
-  if (typeof Office !== "undefined" && Office.onReady) Office.onReady(() => boot());
+  if (typeof Office !== "undefined" && Office.onReady) Office.onReady(() => { applyTheme(); boot(); });
   else boot();
 })();

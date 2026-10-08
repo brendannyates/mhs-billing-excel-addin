@@ -6,15 +6,19 @@
   <meta http-equiv="X-UA-Compatible" content="IE=Edge">
   <title>MHS Billing Tickets</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
   <link rel="icon" href="assets/icon-32.png">
+  <script>
+    // Apply the saved theme before first paint (Auto = no attribute; app.js may refine Auto from the Office theme).
+    try { var t = localStorage.getItem("be.theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+  </script>
 </head>
 <body>
   <div id="app" class="app" aria-busy="true">
     <header class="top">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-name">MHS Billing Tickets</span>
+      <div class="brand" title="MHS Billing Tickets">
+        <img class="logo logo-light" src="assets/logo.png" alt="Mindful Health Solutions — Billing Tickets" width="103" height="34">
+        <img class="logo logo-dark" src="assets/logo-dark.png" alt="Mindful Health Solutions — Billing Tickets" width="103" height="34">
       </div>
       <div class="top-actions">
         <span id="syncState" class="sync-state" role="status" aria-live="polite"></span>
@@ -24,6 +28,9 @@
         <button id="btnSync" class="icon-btn" title="Sync from Raw Data (R)" aria-label="Sync from Raw Data">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.6 6.4A5.8 5.8 0 0 0 3 4.6V2.5H2v4h4v-1H3.6a4.8 4.8 0 0 1 9 1.2zM2.4 9.6A5.8 5.8 0 0 0 13 11.4v2.1h1v-4h-4v1h2.4a4.8 4.8 0 0 1-9-1.2z"/></svg>
         </button>
+        <button id="btnTheme" class="icon-btn" title="Theme: Auto" aria-label="Theme: Auto (follows Excel / system)">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1v12A6 6 0 0 1 8 2z"/></svg>
+        </button>
         <button id="btnMe" class="me-chip" title="Signed in as">—</button>
         <button id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zm0 1a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/><path d="M6.8 1h2.4l.4 1.9 1 .5 1.7-1 1.7 1.7-1 1.7.4 1 1.9.4v2.4l-1.9.4-.4 1 1 1.7-1.7 1.7-1.7-1-1 .4-.4 1.9H6.8l-.4-1.9-1-.4-1.7 1-1.7-1.7 1-1.7-.4-1L.7 9.2V6.8l1.9-.4.4-1-1-1.7 1.7-1.7 1.7 1 1-.5zm.8 1-.3 1.6-1.9.8-1.4-.9-.4.4.9 1.4-.8 1.9L2 7.6v.8l1.6.3.8 1.9-.9 1.4.4.4 1.4-.9 1.9.8.3 1.6h.8l.3-1.6 1.9-.8 1.4.9.4-.4-.9-1.4.8-1.9L14 8.4v-.8l-1.6-.3-.8-1.9.9-1.4-.4-.4-1.4.9-1.9-.8L8.4 2z"/></svg>
@@ -31,7 +38,7 @@
       </div>
     </header>
     <nav class="tabs" role="tablist" aria-label="Views">
-      <button role="tab" data-tab="mine" aria-selected="true" title="My tickets">Mine<b class="badge" id="bMine"></b></button>
+      <button role="tab" data-tab="mine" aria-selected="true" title="My tickets">My Tickets<b class="badge" id="bMine"></b></button>
       <button role="tab" data-tab="action" title="Needs action">Action<b class="badge warn" id="bAction"></b></button>
       <button role="tab" data-tab="ops" title="Ops escalations — review with Arietis">Ops<b class="badge" id="bOps"></b></button>
       <button role="tab" data-tab="clinic">Clinic</button>
@@ -45,9 +52,9 @@
     <main id="view" class="view" tabindex="-1"></main>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
-  <script src="rules.js?v=5"></script>
-  <script src="demo.js?v=5"></script>
-  <script type="module" src="excel.js?v=5"></script>
-  <script type="module" src="app.js?v=5"></script>
+  <script src="rules.js?v=6"></script>
+  <script src="demo.js?v=6"></script>
+  <script type="module" src="excel.js?v=6"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>

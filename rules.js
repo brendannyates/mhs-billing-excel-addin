@@ -274,6 +274,8 @@ function cell(row        , idx          , name        )       {
                
                                                
                                        
+                                                           
+                                                                         
  
                   
                    
@@ -497,10 +499,10 @@ function evaluateTicket(t        , ctx         )         {
   const a           = [];
   if (t.isOpen) {
     if (t.receipt.state === "breached") {
-      a.push({ code: "RCPT_OVERDUE", text: "No receipt from Arietis — " + t.receipt.bdOver + " BD past SLA", sev: 1, who: "arietis" });
+      a.push({ code: "RCPT_OVERDUE", text: "No receipt from Arietis — " + daysOverdue(t.receipt.bdOver), label: "No receipt from Arietis", days: t.receipt.bdOver, sev: 1, who: "arietis" });
     }
     if (t.resolution.state === "breached") {
-      a.push({ code: "RES_OVERDUE", text: "Resolution " + t.resolution.bdOver + " BD past SLA — escalate", sev: 1, who: "arietis" });
+      a.push({ code: "RES_OVERDUE", text: "Resolution " + daysOverdue(t.resolution.bdOver) + " — escalate", label: "Resolution overdue — escalate", days: t.resolution.bdOver, sev: 1, who: "arietis" });
     }
     if (t.receipt.state === "due-today") a.push({ code: "RCPT_DUE", text: "Arietis receipt due today", sev: 2, who: "arietis" });
     if (t.resolution.state === "due-today") a.push({ code: "RES_DUE", text: "Resolution due today", sev: 2, who: "arietis" });
@@ -531,7 +533,7 @@ function evaluateTicket(t        , ctx         )         {
     const idle = bizDaysBetween(t.lastActivity, ctx.now, ctx.hol);
     const hasBreach = a.some((x) => x.sev === 1);
     if (!hasBreach && idle >= ctx.staleDays) {
-      a.push({ code: "STALE", text: "No activity for " + idle + " BD", sev: 3, who: "owner" });
+      a.push({ code: "STALE", text: "No activity for " + idle + " business days", sev: 3, who: "owner" });
     }
   } else {
     const missing           = [];
@@ -896,13 +898,15 @@ const EM = {
   ink: "#1b1f24", muted: "#5b6470", line: "#d9dee4", head: "#f3f5f7",
   red: "#b42318", amber: "#a15c07", green: "#067647", blue: "#1f5f8b",
 };
+/** "1 day overdue" / "3 days overdue" (business days). */
+function daysOverdue(n        )         { return n + (n === 1 ? " day" : " days") + " overdue"; }
 function slaText(s          )         {
   switch (s.state) {
     case "met": return "Met " + fmtShort(s.at);
-    case "late": return "Late " + fmtShort(s.at) + " (+" + s.bdOver + " BD)";
+    case "late": return "Late " + fmtShort(s.at) + " (" + daysOverdue(s.bdOver) + ")";
     case "met-nodate": return "Met (no date)";
     case "due-today": return "Due today";
-    case "breached": return "Overdue " + s.bdOver + " BD";
+    case "breached": return daysOverdue(s.bdOver);
     default: return "Due " + weekdayName(s.due) + " " + fmtShort(s.due);
   }
 }
@@ -1015,7 +1019,7 @@ function buildDigests(tickets          , activity               , ctx         , 
         { label: "Due today", value: String(dueToday.length), color: dueToday.length ? EM.amber : EM.ink },
       ]);
       body += hSection("Needs your action", hTable(["Ticket", "Clinic", pHdr(), "Action"], actionRows(needs)), needs.length);
-      body += hSection("Your open tickets", hTable(["Ticket", "Clinic", pHdr(), "Status", "Receipt (2 BD)", "Resolution (5 BD)"], openRows(open)), open.length);
+      body += hSection("Your open tickets", hTable(["Ticket", "Clinic", pHdr(), "Status", "Receipt (" + s.receiptDays + " business days)", "Resolution (" + s.resolutionDays + " business days)"], openRows(open)), open.length);
       out.push({ to: email, cc: "", subject: subject, html: hWrap("Good morning, " + first, dayLabel + " · start-of-day status", body, s), kind: "owner-open" });
     } else if (mode === "close") {
       const ids = new Set        (mine.map((t) => t.id));
@@ -1347,8 +1351,8 @@ function recapTable(rows          )         {
   return '<table style="border-collapse:collapse;width:100%"><thead><tr>' + ["Date Opened", "MRN", "Patient", "Ticket Number", "Reply Status", "Resolution Status"].map(th).join("") + "</tr></thead><tbody>" +
     rows.map((t) => "<tr>" + [
       fmtDate(t.submitted), t.mrn, t.patient, "#" + t.id,
-      t.receipt.at !== null ? "Confirmed " + fmtDate(t.receipt.at) : t.receipt.state === "met-nodate" ? "Confirmed" : t.receipt.state === "breached" ? "Awaiting reply — " + t.receipt.bdOver + " BD past SLA" : "Awaiting reply",
-      t.isOpen ? t.status + (t.resolution.state === "breached" ? " — " + t.resolution.bdOver + " BD past SLA" : "") : t.status,
+      t.receipt.at !== null ? "Confirmed " + fmtDate(t.receipt.at) : t.receipt.state === "met-nodate" ? "Confirmed" : t.receipt.state === "breached" ? "Awaiting reply — " + daysOverdue(t.receipt.bdOver) : "Awaiting reply",
+      t.isOpen ? t.status + (t.resolution.state === "breached" ? " — " + daysOverdue(t.resolution.bdOver) : "") : t.status,
     ].map(td).join("") + "</tr>").join("") + "</tbody></table>";
 }
 function buildClinicRecap(tickets          , clinic        , mode        , ctx         , workbookUrl        )              {
@@ -1369,6 +1373,6 @@ function buildClinicRecap(tickets          , clinic        , mode        , ctx  
   return { clinic: clinic, subject: clinic + " — " + (mode === "pm" ? "End-of-day billing recap" : "AM open billing tickets") + " — " + dayIso, count: selected.length, needsFollowUp: needs.length, resolutionOverdue: overdue.length, html: html };
 }
 
-var api={COL:COL,FORM_COLS:FORM_COLS,EXTRA_COLS:EXTRA_COLS,MASTER_COLS:MASTER_COLS,DATE_COLS:DATE_COLS,DATE_ONLY_COLS:DATE_ONLY_COLS,MASTER_OWNED_COLS:MASTER_OWNED_COLS,NEVER_MERGE_COLS:NEVER_MERGE_COLS,MERGEABLE_COLS:MERGEABLE_COLS,STATUS:STATUS,CLOSED_STATUSES:CLOSED_STATUSES,DEFAULTS:DEFAULTS,norm:norm,normKey:normKey,isBlank:isBlank,serialFromParts:serialFromParts,OFFSET_FN:OFFSET_FN,setOffsetFn:setOffsetFn,toSerial:toSerial,serialToDate:serialToDate,pad2:pad2,fmtDate:fmtDate,fmtShort:fmtShort,fmtTime:fmtTime,fmtDateTime:fmtDateTime,fmtMoney:fmtMoney,weekdayName:weekdayName,escHtml:escHtml,weekday:weekday,isBizDay:isBizDay,addBizDays:addBizDays,bizDaysBetween:bizDaysBetween,buildIndex:buildIndex,ci:ci,cell:cell,splitList:splitList,normUrgency:normUrgency,toNum:toNum,toBool:toBool,rowToTicket:rowToTicket,isClosedStatus:isClosedStatus,stageOf:stageOf,STAGES:STAGES,slaFor:slaFor,evaluateTicket:evaluateTicket,holidaySet:holidaySet,readSettings:readSettings,loadTickets:loadTickets,emptyStats:emptyStats,addToStats:addToStats,pct:pct,computeStats:computeStats,cellEq:cellEq,planSync:planSync,ticketIdFromSubject:ticketIdFromSubject,planReply:planReply,EM:EM,slaText:slaText,slaColor:slaColor,ticketLabel:ticketLabel,SHOW_IDS:SHOW_IDS,patientLabel:patientLabel,pHdr:pHdr,hTable:hTable,hSection:hSection,hKpis:hKpis,hWrap:hWrap,sevDot:sevDot,actionRows:actionRows,openRows:openRows,sortForAttention:sortForAttention,involves:involves,buildDigests:buildDigests,buildClinicDigests:buildClinicDigests,buildArietisFollowup:buildArietisFollowup,opsQueue:opsQueue,ARIETIS_EXPORT_HEADERS:ARIETIS_EXPORT_HEADERS,arietisExportRows:arietisExportRows,buildArietisReview:buildArietisReview,DV_PREFIX:DV_PREFIX,DV_TICKET_FIELDS:DV_TICKET_FIELDS,DV_ACTIVITY_FIELDS:DV_ACTIVITY_FIELDS,pacificOffsetMin:pacificOffsetMin,utcIsoToSerial:utcIsoToSerial,serialToUtcIso:serialToUtcIso,serialToIsoDate:serialToIsoDate,dvToCell:dvToCell,cellToDv:cellToDv,dvTicketsToTable:dvTicketsToTable,dvActivityRows:dvActivityRows,dvField:dvField,isoDay:isoDay,derivedColumns:derivedColumns,recapTable:recapTable,buildClinicRecap:buildClinicRecap};
+var api={COL:COL,FORM_COLS:FORM_COLS,EXTRA_COLS:EXTRA_COLS,MASTER_COLS:MASTER_COLS,DATE_COLS:DATE_COLS,DATE_ONLY_COLS:DATE_ONLY_COLS,MASTER_OWNED_COLS:MASTER_OWNED_COLS,NEVER_MERGE_COLS:NEVER_MERGE_COLS,MERGEABLE_COLS:MERGEABLE_COLS,STATUS:STATUS,CLOSED_STATUSES:CLOSED_STATUSES,DEFAULTS:DEFAULTS,norm:norm,normKey:normKey,isBlank:isBlank,serialFromParts:serialFromParts,OFFSET_FN:OFFSET_FN,setOffsetFn:setOffsetFn,toSerial:toSerial,serialToDate:serialToDate,pad2:pad2,fmtDate:fmtDate,fmtShort:fmtShort,fmtTime:fmtTime,fmtDateTime:fmtDateTime,fmtMoney:fmtMoney,weekdayName:weekdayName,escHtml:escHtml,weekday:weekday,isBizDay:isBizDay,addBizDays:addBizDays,bizDaysBetween:bizDaysBetween,buildIndex:buildIndex,ci:ci,cell:cell,splitList:splitList,normUrgency:normUrgency,toNum:toNum,toBool:toBool,rowToTicket:rowToTicket,isClosedStatus:isClosedStatus,stageOf:stageOf,STAGES:STAGES,slaFor:slaFor,evaluateTicket:evaluateTicket,holidaySet:holidaySet,readSettings:readSettings,loadTickets:loadTickets,emptyStats:emptyStats,addToStats:addToStats,pct:pct,computeStats:computeStats,cellEq:cellEq,planSync:planSync,ticketIdFromSubject:ticketIdFromSubject,planReply:planReply,EM:EM,daysOverdue:daysOverdue,slaText:slaText,slaColor:slaColor,ticketLabel:ticketLabel,SHOW_IDS:SHOW_IDS,patientLabel:patientLabel,pHdr:pHdr,hTable:hTable,hSection:hSection,hKpis:hKpis,hWrap:hWrap,sevDot:sevDot,actionRows:actionRows,openRows:openRows,sortForAttention:sortForAttention,involves:involves,buildDigests:buildDigests,buildClinicDigests:buildClinicDigests,buildArietisFollowup:buildArietisFollowup,opsQueue:opsQueue,ARIETIS_EXPORT_HEADERS:ARIETIS_EXPORT_HEADERS,arietisExportRows:arietisExportRows,buildArietisReview:buildArietisReview,DV_PREFIX:DV_PREFIX,DV_TICKET_FIELDS:DV_TICKET_FIELDS,DV_ACTIVITY_FIELDS:DV_ACTIVITY_FIELDS,pacificOffsetMin:pacificOffsetMin,utcIsoToSerial:utcIsoToSerial,serialToUtcIso:serialToUtcIso,serialToIsoDate:serialToIsoDate,dvToCell:dvToCell,cellToDv:cellToDv,dvTicketsToTable:dvTicketsToTable,dvActivityRows:dvActivityRows,dvField:dvField,isoDay:isoDay,derivedColumns:derivedColumns,recapTable:recapTable,buildClinicRecap:buildClinicRecap};
 globalThis.BE=api;
 })();
