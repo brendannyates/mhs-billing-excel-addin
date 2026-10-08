@@ -60,3 +60,9 @@ npm run build && npm test
 - Ask rather than assume when a request is ambiguous, and state any assumptions you make.
 - Don't assume anyone's gender from a name.
 - Reply in plain operational language: what changed, and what he needs to do (if anything).
+
+## Skills in this repo
+`.claude/skills/` holds three skills:
+- `billing-addin-change`: make any change end to end.
+- `billing-addin-rollout`: install, update, remove, troubleshoot and onboard.
+- `billing-addin-move-host`: move to a new GitHub owner. It uses `scripts/set-host.mjs`.
