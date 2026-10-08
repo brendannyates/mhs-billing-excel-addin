@@ -9,6 +9,9 @@ const BE = globalThis.BE;
 const C = BE.COL;
 const LOG = 'Activity Log';
 const LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Ticket Id', 'Field', 'Old value', 'New value', 'Details'];
+// MHS-only link to the live workbook (requires an MHS Microsoft 365 sign-in). Initialize writes it to
+// Settings "Workbook URL" when that cell is blank, so email links work without anyone typing it.
+const DEFAULT_WORKBOOK_URL = 'https://mindfulhealthsolutions-my.sharepoint.com/:x:/g/personal/byates_mymhs_com/IQDxqsZTKhXFT7p_oSUG49IKAS_reuY_Z6SKWgNHnmnk3Eg?e=MURJfQ&nav=MTVfe0I1M0ZDMzgyLThCQkMtNDhEMS04NjkxLThDODNBOEM3RkQ2Rn0';
 const SETTING_DEFAULTS = [
   ['Receipt SLA business days', 2], ['Resolution SLA business days', 5], ['Stale after business days', 3],
   ['Arietis email', 'patientbilling@arietishealth.com'], ['Billing inbox', 'billing@mindfulhealthsolutions.com'],
@@ -65,7 +68,7 @@ export const ExcelSource = {
       if (!has('_SyncState')) { const s = tabs.add('_SyncState'); s.getRange('A1:D1').values = [['Id', 'Baseline JSON', 'Override Fields JSON', 'Conflicts JSON']]; s.visibility = 'Hidden'; log.push('Added _SyncState'); }
       if (!has('Settings')) {
         const s = tabs.add('Settings');
-        s.getRange('A1:B6').values = [['Setting', 'Value'], ['Time zone', 'Pacific Standard Time'], ['Business open', '09:00'], ['Business close', '17:00'], ['Weekly recap day', 'Friday'], ['Workbook URL', '']];
+        s.getRange('A1:B6').values = [['Setting', 'Value'], ['Time zone', 'Pacific Standard Time'], ['Business open', '09:00'], ['Business close', '17:00'], ['Weekly recap day', 'Friday'], ['Workbook URL', DEFAULT_WORKBOOK_URL]];
         s.getRange('D1:D2').values = [['Holiday dates (YYYY-MM-DD)'], ['']];
         log.push('Added Settings');
       }
@@ -77,6 +80,12 @@ export const ExcelSource = {
       let next = Math.max(st.values.length, 6);
       const add = SETTING_DEFAULTS.filter(([k]) => !keys.has(k.toLowerCase().replace(/[^a-z0-9]/g, '')));
       if (add.length) { ctx.workbook.worksheets.getItem('Settings').getRangeByIndexes(next, 0, add.length, 2).values = add; next += add.length; }
+      // Workbook URL: fill the built-in MHS link if the cell is blank (never overwrite a value someone set).
+      const urlRow = st.values.findIndex((r) => String(r[0]).toLowerCase().replace(/[^a-z0-9]/g, '') === 'workbookurl');
+      if (urlRow >= 0 && !String(st.values[urlRow][1] || '').trim()) {
+        ctx.workbook.worksheets.getItem('Settings').getCell(urlRow, 1).values = [[DEFAULT_WORKBOOK_URL]];
+        log.push('Set Workbook URL');
+      }
       master.tables.load('items/name'); await ctx.sync();
       const tableRange = master.getRangeByIndexes(0, 0, range.values.length, h.length);
       if (!master.tables.items.length) { const t = master.tables.add(tableRange, true); t.name = 'BillingMaster'; }

@@ -27,6 +27,23 @@
   const PROFILE_KEY = "mhsBillingProfile";
   let profile = { name: "", email: "", role: "", clinics: [] };
   try { profile = { ...profile, ...JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}") }; } catch (e) { /* private mode */ }
+  const saveProfile = () => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (e) { /* private mode */ } };
+  /**
+   * Name + email from the person's Microsoft 365 (work) sign-in via Office single sign-on.
+   * Needs the Entra app ID in manifest.xml (see docs/SSO_SETUP.md). Until then this quietly returns null
+   * and the add-in falls back to the profile form. Identity is used to filter and attribute, not to grant access:
+   * the workbook's SharePoint permissions decide who can open the data.
+   */
+  async function ssoUser() {
+    try {
+      if (typeof Office === "undefined" || !Office.auth || !Office.auth.getAccessToken) return null;
+      const tok = await Office.auth.getAccessToken({ allowSignInPrompt: true, allowConsentPrompt: true });
+      const part = tok.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const claims = JSON.parse(decodeURIComponent(escape(atob(part + "===".slice((part.length + 3) % 4)))));
+      const email = String(claims.preferred_username || claims.upn || claims.email || "").trim().toLowerCase();
+      return email.indexOf("@") > 0 ? { email, name: String(claims.name || "").trim() } : null;
+    } catch (e) { return null; } // SSO not configured yet, offline, or not supported by this Excel build
+  }
   const S = {
     src: null, ready: false, me: BE.normKey(profile.email), tab: store.get("tab", "mine"), detail: null,
     tickets: [], byId: new Map(), settings: BE.readSettings([]), ctx: null, refCols: new Map(), clinics: [],
@@ -135,6 +152,10 @@
     if (S.src.kind === "demo") showBanner("Demo mode — synthetic data. Open from Excel (Home › MHS Billing Tickets) to work on the live workbook.");
     if (S.src.kind === "dataverse") $("#btnSync").title = "Refresh";
     if (S.src.currentUser) { const u = S.src.currentUser(); if (u && u.email) { S.me = u.email; if (u.name) S.meNameHint = u.name; } }
+    if (inExcel) {
+      const u = await ssoUser();
+      if (u) { profile = { ...profile, name: u.name || profile.name, email: u.email, sso: true }; saveProfile(); S.me = BE.normKey(u.email); }
+    }
     if (inExcel && canFullScreen()) $("#btnFull").hidden = false;
     if (MODE === "dialog") { document.body.classList.add("web"); $("#btnFull").hidden = false; $("#btnFull").title = "Close full screen"; }
     try {
@@ -767,21 +788,17 @@
     const emails = Array.from(S.people.keys()).sort();
     const clinics = S.clinics.filter((c) => c !== "(No clinic)");
     sheet("Your profile", `<form id="profileForm" class="form" autocomplete="off">
-      <div class="field"><label for="pfName">Name</label><input id="pfName" name="name" value="${esc(profile.name)}" required></div>
-      <div class="field"><label for="pfEmail">Email (the one Microsoft Forms records)</label><input id="pfEmail" name="email" type="email" list="pfEmails" value="${esc(profile.email)}" required><datalist id="pfEmails">${emails.map((e) => `<option value="${esc(e)}">`).join("")}</datalist></div>
+      ${profile.sso ? `<div class="field full"><span class="lab">Signed in as</span><div><b>${esc(profile.name || profile.email)}</b> <span class="muted">${esc(profile.email)} · from your Microsoft sign-in</span></div><input type="hidden" name="name" value="${esc(profile.name)}"><input type="hidden" name="email" value="${esc(profile.email)}"></div>` : `<div class="field"><label for="pfName">Name</label><input id="pfName" name="name" value="${esc(profile.name)}" required></div>
+      <div class="field"><label for="pfEmail">Email (the one Microsoft Forms records)</label><input id="pfEmail" name="email" type="email" list="pfEmails" value="${esc(profile.email)}" required><datalist id="pfEmails">${emails.map((e) => `<option value="${esc(e)}">`).join("")}</datalist></div>`}
       <div class="field full"><label for="pfRole">Role</label><input id="pfRole" name="role" value="${esc(profile.role)}" placeholder="e.g. Practice manager"></div>
       <div class="field full"><span class="lab">Assigned clinics <span class="muted" style="font-weight:400">— default scope for Action, Ops and Stats; none = all</span></span><div class="checks">${clinics.map((c) => `<label><input type="checkbox" name="clinics" value="${esc(c)}" ${profile.clinics.indexOf(c) >= 0 ? "checked" : ""}>${esc(shortClinic(c))}</label>`).join("") || '<span class="muted">Clinics load from REF once the workbook is open.</span>'}</div></div>
-      ${S.src.kind === "dataverse" ? "" : `<div class="field full"><label for="pfUrl">Cloud workbook URL (for email links; saved to Settings)</label><input id="pfUrl" name="workbookUrl" type="url" value="${esc(S.settings.workbookUrl)}" placeholder="https://…"></div>`}
       <div class="field full"><button class="btn primary" type="submit">Save profile</button><span class="muted">Stored on this computer only. Workbook permissions still decide who can see what.</span></div></form>`);
     $("#profileForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      const url = String(fd.get("workbookUrl") || "").trim();
-      if (url && !/^https:\/\//i.test(url)) { toast("Use an https:// workbook URL.", true); return; }
-      profile = { name: String(fd.get("name")).trim(), email: String(fd.get("email")).trim().toLowerCase(), role: String(fd.get("role") || "").trim(), clinics: fd.getAll("clinics").map(String) };
-      try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (err) { /* private mode */ }
+      profile = { name: String(fd.get("name")).trim(), email: String(fd.get("email")).trim().toLowerCase(), role: String(fd.get("role") || "").trim(), clinics: fd.getAll("clinics").map(String), sso: !!profile.sso };
+      saveProfile();
       S.me = BE.normKey(profile.email); S.f.scope = "assigned";
-      if (url !== (S.settings.workbookUrl || "") && S.src.setWorkbookUrl) { try { await S.src.setWorkbookUrl(url); S.settings.workbookUrl = url; } catch (err) { toast("Couldn't save the workbook URL: " + err.message, true); } }
       closeSheet(); render(); toast("Profile saved");
     });
   }
@@ -790,7 +807,7 @@
     try { st = await S.src.status(); } catch (e) { /* ignore */ }
     const ok = (b) => (b ? `<span class="sla ok">✓</span>` : `<span class="sla bad">missing</span>`);
     sheet("Settings", `<div class="card"><h4>You</h4><div class="toolbar"><span style="flex:1">${esc(meName() || "Not set")} <span class="muted">${esc(S.me)}${profile.role ? " · " + esc(profile.role) : ""}${profile.clinics.length ? " · " + profile.clinics.length + " assigned clinic" + (profile.clinics.length > 1 ? "s" : "") : ""}</span></span><button class="btn sm" data-act="pickMe">Edit profile</button></div></div>
-      ${S.src.kind === "dataverse" ? `<div class="card"><h4>Data</h4><dl class="kv"><dt>Store</dt><dd>Dataverse (Power Pages)</dd><dt>Tickets</dt><dd>${S.tickets.length}</dd><dt>Loaded</dt><dd>${esc(S.lastSync ? BE.fmtDateTime(S.lastSync) : "—")}</dd></dl><div class="btn-row" style="margin-top:8px"><button class="btn sm primary" data-act="syncNow">Refresh</button></div></div>` : `<div class="card"><h4>Workbook</h4><dl class="kv"><dt>Raw Data (form)</dt><dd>${ok(st.raw)} read-only, never written</dd><dt>Master</dt><dd>${ok(st.master)} ${S.tickets.length} tickets · all edits land here</dd><dt>Sync</dt><dd>Every 30 s while this pane is open · last ${esc(S.lastSync ? BE.fmtDateTime(S.lastSync) : "—")}</dd><dt>Merge rule</dt><dd>Form blanks never erase Master; disagreements are flagged, not overwritten</dd></dl>
+      ${S.src.kind === "dataverse" ? `<div class="card"><h4>Data</h4><dl class="kv"><dt>Store</dt><dd>Dataverse (Power Pages)</dd><dt>Tickets</dt><dd>${S.tickets.length}</dd><dt>Loaded</dt><dd>${esc(S.lastSync ? BE.fmtDateTime(S.lastSync) : "—")}</dd></dl><div class="btn-row" style="margin-top:8px"><button class="btn sm primary" data-act="syncNow">Refresh</button></div></div>` : `<div class="card"><h4>Workbook</h4><dl class="kv"><dt>Raw Data (form)</dt><dd>${ok(st.raw)} read-only, never written</dd><dt>Master</dt><dd>${ok(st.master)} ${S.tickets.length} tickets · all edits land here</dd><dt>Sync</dt><dd>Every 30 s while this pane is open · last ${esc(S.lastSync ? BE.fmtDateTime(S.lastSync) : "—")}</dd><dt>Merge rule</dt><dd>Form blanks never erase Master; disagreements are flagged, not overwritten</dd><dt>Email link</dt><dd>${S.settings.workbookUrl ? `<a href="${esc(S.settings.workbookUrl)}" target="_blank" rel="noopener">MHS-only workbook link</a> <span class="muted">(Settings › Workbook URL)</span>` : '<span class="muted">Set on next Initialize</span>'}</dd></dl>
       <div class="btn-row" style="margin-top:8px"><button class="btn sm primary" data-act="syncNow">Sync now</button><button class="btn sm" data-act="init">Initialize / refresh</button></div></div>`}
       <div class="card"><h4>SLA rules</h4><dl class="kv"><dt>Receipt</dt><dd>${S.ctx ? S.ctx.receiptDays : 2} business days from submission</dd><dt>Resolution</dt><dd>${S.ctx ? S.ctx.resolutionDays : 5} business days from submission</dd><dt>Stale</dt><dd>${S.ctx ? S.ctx.staleDays : 3} business days without activity</dd><dt>Holidays</dt><dd>${S.ctx ? S.ctx.hol.size : 0} on the calendar</dd></dl><p class="muted" style="margin:8px 0 0">${S.src.kind === "dataverse" ? "Change these in the Escalation Settings and Holidays tables." : "Change these on the Settings sheet (column A/B values; holidays in column D)."}</p></div>
       <div class="card"><h4>Preview my automated emails</h4><div class="btn-row"><button class="btn sm" data-act="preview" data-mode="open">Start of day</button><button class="btn sm" data-act="preview" data-mode="close">End of day</button><button class="btn sm" data-act="preview" data-mode="weekly">Weekly recap</button></div></div>

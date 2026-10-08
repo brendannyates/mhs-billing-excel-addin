@@ -36,8 +36,8 @@ No patient records are bundled or published. The static host serves code only. T
    - adds the Settings rows and the **Activity Log** sheet
 
    Raw Data and `OfficeForms.Table` are never touched.
-5. Fill in your profile when prompted. It's a filter, not authentication: anyone with workbook access can read all of its data.
-6. Put your actual holidays in **Settings column D** (YYYY-MM-DD). An empty list means weekdays only; holidays are never invented. Also set the **Workbook URL**, which email links use.
+5. **Who you are:** once single sign-on is set up ([docs/SSO_SETUP.md](docs/SSO_SETUP.md)), your name and work email come from your Microsoft 365 sign-in automatically. Until then the add-in asks once. Role and assigned clinics are optional picks. Identity filters and attributes edits; it isn't access control, because the workbook's SharePoint permissions decide who can see data.
+6. Put your actual holidays in **Settings column D** (YYYY-MM-DD). An empty list means weekdays only; holidays are never invented. The **Workbook URL** (used by email links) is filled in automatically with the MHS-only workbook link.
 
 ## SLA rules
 - **Clocks start at form submission** (`Completion time`).

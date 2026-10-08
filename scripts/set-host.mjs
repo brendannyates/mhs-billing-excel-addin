@@ -18,11 +18,12 @@ if (!cur) { console.error('Could not find the current GitHub Pages URL in manife
 const old = cur[1];
 if (old.toLowerCase() === owner.toLowerCase()) { console.log(`Already pointed at ${owner}.`); process.exit(0); }
 
-const files = ['manifest.xml', 'README.md', 'AUTOMATION.md', 'CLAUDE.md', 'docs/BUILD_SPEC.md', 'docs/POWER_PAGES.md']
+const files = ['manifest.xml', 'README.md', 'AUTOMATION.md', 'CLAUDE.md', 'docs/BUILD_SPEC.md', 'docs/POWER_PAGES.md', 'docs/SSO_SETUP.md']
   .filter((f) => fs.existsSync(f));
 const esc = old.replace(/[-]/g, '\\-');
 const swaps = [
   [new RegExp(`https://${esc}\\.github\\.io(?=[/<"\\s]|$)`, 'gim'), `https://${owner.toLowerCase()}.github.io`],
+  [new RegExp(`api://${esc}\\.github\\.io/`, 'gi'), `api://${owner.toLowerCase()}.github.io/`], // SSO Application ID URI (also update it in Entra)
   [new RegExp(`github\\.com/${esc}/${REPO}`, 'gi'), `github.com/${owner}/${REPO}`],
   [new RegExp(`\\b${esc}/${REPO}`, 'g'), `${owner}/${REPO}`],
 ];
