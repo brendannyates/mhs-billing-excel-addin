@@ -12,3 +12,22 @@ function fixture2(){const H=[...h,'Last Updated By','Last Updated At'];const rec
 test('register syncs a new ticket from Raw Data and links its conversation once',()=>{const f=fixture2();const col=n=>f.H.indexOf(n);let r=f.run('register',JSON.stringify([{ticketId:40,conversationId:'conv-40',sentAt:'2026-10-06T22:30:00Z'}]));assert.deepEqual(r.unmatched,[]);const row=f.sheets.Master.values[1];assert.equal(row[0],40);assert.equal(row[col('Vendor Conversation ID')],'conv-40');assert.equal(row[col('Submitted to Vendor At')],'2026-10-06');r=f.run('register',JSON.stringify([{ticketId:40,conversationId:'conv-other',sentAt:'2026-10-06T22:30:00Z'}]));assert.deepEqual(r.unmatched,['40']);assert.equal(f.sheets.Master.values[1][col('Vendor Conversation ID')],'conv-40');r=f.run('register',JSON.stringify([{ticketId:41,conversationId:'conv-41',sentAt:'2026-10-06T22:30:00Z'}]));assert.deepEqual(r.unmatched,['41']);});
 test('reply stamps Arietis (auto) unless staff updated later',()=>{const f=fixture2();const col=n=>f.H.indexOf(n);f.run('register',JSON.stringify([{ticketId:40,conversationId:'conv-40',sentAt:'2026-10-06T22:30:00Z'}]));const rep=t=>JSON.stringify([{conversationId:'conv-40',sender:'PatientBilling@arietishealth.com',receivedAt:t,messageId:t}]);f.run('reply',rep('2026-10-07T17:00:00Z'));let row=f.sheets.Master.values[1];assert.equal(row[col('Status:')],'Arietis - Confirmed Receipt');assert.equal(row[col('Date of first reply from Arietis:')],'2026-10-07T17:00:00Z');assert.equal(row[col('Last Updated By')],'Arietis (auto)');assert.equal(row[col('Last Updated At')],'2026-10-07T17:00:00Z');row[col('Last Updated By')]='staff@example.com';row[col('Last Updated At')]='2026-10-07T20:00:00Z';f.run('reply',rep('2026-10-07T18:00:00Z'));row=f.sheets.Master.values[1];assert.equal(row[col('Last Updated By')],'staff@example.com');assert.equal(row[col('Last Reply At')],'2026-10-07T18:00:00Z');});
 test('blank localToday defaults to today (manual Run from Excel)',()=>{const f=fixture();const r=f.run('sync','[]','');assert.equal(typeof r.processed,'number');});
+test('new ticket goes right after the last ticket; rows are written in place, never compacted',()=>{
+  const f=fixture2();const H=f.H;const blank=()=>H.map(()=> '');
+  // Master: header, ticket 39, three blank formatted rows, nothing else
+  const t39=H.map(h=>h==='Id'?39:h==='Status:'?'MHS - Submitted to Arietis':h==='Completion time'?'2026-10-05':'');
+  f.sheets.Master.values=[H,t39,blank(),blank(),blank()];
+  f.run('sync');f.run('sync');
+  const ids=f.sheets.Master.values.map(r=>r[0]).filter(v=>v!=='' && v!=='Id');
+  assert.deepEqual(ids,[39,40]);
+  assert.equal(f.sheets.Master.values[2][0],40);
+});
+test('ticket stranded below blank rows keeps its row; no duplicate is created',()=>{
+  const f=fixture2();const H=f.H;const blank=()=>H.map(()=> '');
+  const row=(id)=>H.map(h=>h==='Id'?id:h==='Status:'?'MHS - Submitted to Arietis':h==='Completion time'?'2026-10-05':'');
+  f.sheets.Master.values=[H,row(39),blank(),blank(),row(40)];
+  f.run('sync');f.run('sync');
+  const ids=f.sheets.Master.values.map(r=>r[0]).filter(v=>v!=='' && v!=='Id');
+  assert.deepEqual(ids,[39,40]);
+  assert.equal(f.sheets.Master.values[4][0],40);
+});

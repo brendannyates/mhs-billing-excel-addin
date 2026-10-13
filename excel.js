@@ -116,7 +116,7 @@ export const ExcelSource = {
   async sync(user) {
     return Excel.run(async (ctx) => {
       const ws = ctx.workbook.worksheets.getItem('Master'), state = ctx.workbook.worksheets.getItem('_SyncState');
-      const mr = ws.getUsedRange(), rr = ctx.workbook.worksheets.getItem('Raw Data').getUsedRange(), sr = state.getUsedRange();
+      const mr = ws.getUsedRange(true), rr = ctx.workbook.worksheets.getItem('Raw Data').getUsedRange(true), sr = state.getUsedRange(true);
       mr.load('values'); rr.load('values'); sr.load('values'); await ctx.sync();
       const lg = await used(ctx, LOG), st = await used(ctx, 'Settings');
       const mh = mr.values[0].map(String), rh = rr.values[0].map(String), index = new Map();
@@ -125,6 +125,8 @@ export const ExcelSource = {
       for (const r of rr.values.slice(1)) { if (!filled(r[0])) continue; const id = String(r[0]); if (seen.has(id)) throw Error('Duplicate Id ' + id + ' in Raw Data; sync stopped.'); seen.add(id); }
       const states = new Map(sr.values.slice(1).filter((r) => filled(r[0])).map((r) => [String(r[0]), r]));
       const out = mr.values.map((r) => r.slice()); // full Master grid we will diff against
+      // New tickets go right after the last ticket row (never after blank formatted rows at the bottom).
+      let lastTicket = 0; mr.values.forEach((r, i) => { if (i > 0 && filled(r[0])) lastTicket = i; });
       const entries = [], appended = [];
       let merged = 0;
       for (const rawRow of rr.values.slice(1)) {
@@ -146,7 +148,7 @@ export const ExcelSource = {
         if (!filled(res.next[C.status])) res.next[C.status] = BE.STATUS.submitted;
         res.next[C.conflicts] = [...pending].join('; ');
         if (pos === undefined) {
-          pos = out.length; out.push(mh.map(() => '')); index.set(id, pos); appended.push(Number(id));
+          pos = ++lastTicket; if (pos < out.length) out[pos] = mh.map(() => ''); else out.push(mh.map(() => '')); index.set(id, pos); appended.push(Number(id));
           entries.push(logRow('Form', 'Imported', id, '', '', '', 'New form submission copied to Master'));
         } else {
           for (const key of BE.MERGEABLE_COLS) {
@@ -177,7 +179,7 @@ export const ExcelSource = {
       if (states.size) state.getRangeByIndexes(1, 0, states.size, 4).values = [...states.values()];
       appendLog(ctx, lg && lg.values, entries);
       ws.tables.load('items/name'); await ctx.sync();
-      if (ws.tables.items.length) ws.tables.items[0].resize(ws.getRangeByIndexes(0, 0, out.length, mh.length));
+      if (ws.tables.items.length) ws.tables.items[0].resize(ws.getRangeByIndexes(0, 0, Math.max(out.length, lastTicket + 1), mh.length));
       await ctx.sync();
       return { appended, updated: merged, baselined: 0, duplicates: [], at: nowSerial() };
     });
@@ -187,7 +189,7 @@ export const ExcelSource = {
   async saveTicket(id, edits, by) {
     return Excel.run(async (ctx) => {
       const ws = ctx.workbook.worksheets.getItem('Master'), state = ctx.workbook.worksheets.getItem('_SyncState');
-      const range = ws.getUsedRange(), sr = state.getUsedRange(); range.load('values'); sr.load('values'); await ctx.sync();
+      const range = ws.getUsedRange(true), sr = state.getUsedRange(true); range.load('values'); sr.load('values'); await ctx.sync();
       const lg = await used(ctx, LOG);
       const h = range.values[0].map(String), pos = range.values.findIndex((r, i) => i > 0 && String(r[0]) === String(id));
       if (pos < 0) throw Error('Ticket #' + id + ' is no longer on Master. Refresh.');
