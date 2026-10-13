@@ -84,6 +84,57 @@ Friday at business close, after reconciliation: `operation=digest`, `mode=weekly
 
 Send owner recaps as above. For clinic escalation, group flagged tickets by Patient Clinic and look up ClinicName/ClinicEmail in REF (Table2). Validate recipients, then send the approved clinic escalation digest. Define any additional escalation manager separately; no recipient is guessed. Route unresolved conversation matches to operations rather than treating them as receipt confirmations.
 
+## 6. One-time inbox audit (backfill reply dates)
+
+Fills these on Master from the billing mailbox's history, for every ticket it can match:
+- **Date of first reply from Arietis:** filled only while blank. If a date is already there and the inbox shows a different day, the ticket is listed under `differences` and the date is left alone.
+- **First Reply At** and **Last Reply At:** the earliest and latest Arietis reply.
+- **Vendor Conversation ID:** filled only while blank, and only when exactly one conversation matches the ticket and no other ticket already uses it.
+- **Last Message At** and **Last Message From:** the latest message either way, and who sent it (`Arietis` or `MHS`). These are new columns. Open the add-in and run Initialize once to add them; until then they're listed under `missingColumns`.
+
+**How a conversation is matched:** by Vendor Conversation ID first. If no ticket has that ID, the subject must name exactly one ticket (`[BE-123]`, `Escalation #123` or `Ticket #123`, the same tokens the add-in reads). There is no MRN or patient-name matching. Anything else goes to `unmatched` for manual review.
+
+Messages after a ticket's Closed At are ignored. The audit doesn't change Status, Last Updated By/At, or anything on Raw Data.
+
+**Flow: Billing inbox audit (instant cloud flow, run by hand)**
+1. **Manually trigger a flow** with two text inputs:
+   - `Mode`: `preview` or `apply`.
+   - `Since`: `YYYY-MM-DD`, the date of the first ticket.
+2. **Initialize variable** `Mail` (Array, empty) and `Next` (String), with `Next` set to:
+   ```
+   https://graph.microsoft.com/v1.0/users/<billing mailbox address>/messages?$filter=receivedDateTime ge <Since>T00:00:00Z&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime&$top=100
+   ```
+   `/messages` covers every folder, including Sent Items and subfolders.
+3. **Do until** `Next` is empty. Under Change limits, raise Count to 5000 and set Timeout to PT2H. Inside it:
+   - **Office 365 Outlook: Send an HTTP request**, Method GET, URI `Next`. The account running the flow needs Full Access to the billing mailbox.
+   - **Filter array** on `body('Send_an_HTTP_request')?['value']`, keeping a message when it is from Arietis or Arietis is on To/CC:
+     ```
+     @or(equals(toLower(item()?['from']?['emailAddress']?['address']),'patientbilling@arietishealth.com'),contains(toLower(string(item()?['toRecipients'])),'patientbilling@arietishealth.com'),contains(toLower(string(item()?['ccRecipients'])),'patientbilling@arietishealth.com'))
+     ```
+   - **Compose** `union(variables('Mail'), body('Filter_array'))`, then **Set variable** `Mail` = `outputs('Compose')`. A Set can't read its own variable, which is why the Compose is needed.
+   - **Set variable** `Next` = `coalesce(body('Send_an_HTTP_request')?['@odata.nextLink'],'')`.
+4. **Select** from `Mail`, mapping:
+   - `conversationId`: `item()?['conversationId']`
+   - `from`: `item()?['from']?['emailAddress']?['address']`
+   - `to`: `concat(string(item()?['toRecipients']),string(item()?['ccRecipients']))`
+   - `receivedAt`: `item()?['receivedDateTime']`
+   - `messageId`: `item()?['id']`
+   - `subject`: `item()?['subject']`
+5. **Excel Online (Business): Run script**, **Billing Automation**, on the original workbook, with:
+   - `operation` = `audit`
+   - `localToday` = the Pacific date expression above
+   - `repliesJson` = `string(body('Select'))`
+   - `mode` = the trigger's `Mode`
+6. **Parse JSON** on the result. Then **Send an email (V2)** to yourself with `messages`, `matched` and the number of changes, plus **Create HTML table** tables of `changes`, `differences`, `notes` and `unmatched`. The result carries ticket Ids, dates and message ids only, never patient names or MRNs. Subjects aren't returned.
+
+**Running it**
+1. Pause the serialized worker (and nobody edits in the add-in) while the audit runs with `apply`. It writes Master like any other job.
+2. Run with `preview` first. Nothing is written. Read the email.
+3. Run with `apply`. Rerunning is safe, and so is splitting a large mailbox into date ranges (one run per quarter, say): every field is a min or max, so the order doesn't matter. Split if Run script fails on payload size.
+4. Work through `differences` (the sheet and the inbox disagree on the first reply day) and `unmatched` (find each one in the inbox by its received time).
+
+**Limits:** if staff send from the shared mailbox and their sent copies land in their own Sent Items, those MHS messages aren't seen, so Last Message From can say Arietis when MHS replied last. Exchange's "save sent items for shared mailbox" setting (`MessageCopyForSentAsEnabled` / `MessageCopyForSendOnBehalfEnabled`) fixes this going forward; IT can check it.
+
 ## Acceptance before enabling
 - Confirm Forms writes to Raw Data while workbook is closed and changed-response reconciliation sees updates.
 - Verify response #31 retains Master clinic/MRN/notes when source blanks them.

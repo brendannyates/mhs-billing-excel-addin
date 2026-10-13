@@ -4,6 +4,11 @@ type Row = {[key: string]: Cell};
 type Reply = {conversationId: string; sender: string; receivedAt: string; messageId: string};
 type Registration = {ticketId: string | number; conversationId: string; sentAt: string};
 type State = {baseline: Row; overrides: string[]; conflicts: string[]};
+type Mail = {conversationId: string; from: string; to: string; receivedAt: string; messageId: string; subject: string; side?: string};
+type AuditResult = {mode: string; messages: number; matched: number; changes: {ticketId: Cell; field: string; from: Cell; to: Cell}[];
+  differences: {ticketId: Cell; sheet: string; inbox: string}[]; notes: {ticketId: Cell; note: string}[];
+  unmatched: {messageId: string; receivedAt: string; side?: string; reason: string}[]; missingColumns: string[]};
+const ARIETIS='patientbilling@arietishealth.com';
 function present(v: Cell | undefined): boolean { return v !== undefined && String(v).trim() !== ''; }
 function isClosedRow(t: Row): boolean { return /^(Closed|Resolved)\b/.test(String(t['Status:']||'')); }
 function day(v: Cell): string {
@@ -34,6 +39,7 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
   const sv=stateSheet.getUsedRange().getValues(),states: {[id: string]: State}={};sv.slice(1).forEach(r=>{if(present(r[0]))states[String(r[0])]={baseline:JSON.parse(String(r[1]||'{}')),overrides:JSON.parse(String(r[2]||'[]')),conflicts:JSON.parse(String(r[3]||'[]'))};});
   const holidays=settings.getUsedRange().getValues().slice(1).map(r=>String(r[3]||'')).filter(v=>/^\d{4}-\d{2}-\d{2}$/.test(v));
   const unmatched: string[]=[];
+  const audit: AuditResult={mode:mode==='apply'?'apply':'preview',messages:0,matched:0,changes:[],differences:[],notes:[],unmatched:[],missingColumns:[]};
   const syncFromRaw=()=>{
     const rv=raw.getUsedRange().getValues(),rh=rv[0].map(String),seen=new Set<string>();
     rv.slice(1).forEach(r=>{if(present(r[0])){const id=String(r[0]);if(seen.has(id))throw Error('Duplicate Raw Data Id');seen.add(id);}});
@@ -92,6 +98,49 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
       if(headers.includes('Last Updated At')&&(!present(upd)||received>epoch(upd))){t['Last Updated By']=AUTO_REPLY_BY;t['Last Updated At']=r.receivedAt;}
       const st=states[String(t.Id)]||{baseline:{},overrides:[],conflicts:[]};st.overrides=[...new Set([...st.overrides,'Date of first reply from Arietis:','Status:'])];states[String(t.Id)]=st;
     });
+  }else if(operation==='audit'){
+    // One-time inbox backfill. repliesJson = every message to or from Arietis in the billing mailbox (any order, any folder).
+    // A conversation matches its ticket by Vendor Conversation ID, else by one ticket token in its subjects ([BE-n], Escalation #n, Ticket #n).
+    // Date of first reply is filled only while blank; a different date already there is reported, never overwritten.
+    // mode=preview (default) writes nothing; mode=apply writes. Safe to rerun or to send in chunks: every field is a min/max.
+    const msgs: Mail[]=JSON.parse(repliesJson),byConv: {[c: string]: Mail[]}={};
+    msgs.forEach(m=>{
+      const from=String(m.from||'').trim().toLowerCase(),toArietis=String(m.to||'').toLowerCase().includes(ARIETIS);
+      if(!m.conversationId||!Number.isFinite(Date.parse(m.receivedAt)))throw Error('Invalid audit payload');
+      if(from!==ARIETIS&&!toArietis)return;
+      m.side=from===ARIETIS?'Arietis':'MHS';audit.messages++;(byConv[m.conversationId]=byConv[m.conversationId]||[]).push(m);
+    });
+    const hits: {[id: string]: {t: Row; convs: string[]; ms: Mail[]}}={};
+    Object.keys(byConv).forEach(conv=>{
+      const ms=byConv[conv],linked=tickets.filter(t=>String(t['Vendor Conversation ID'])===conv);
+      const ids=[...new Set(ms.map(m=>ticketIdFromSubject(String(m.subject||''))).filter(n=>n!==null).map(String))];
+      let t: Row|undefined,why='';
+      if(linked.length===1)t=linked[0];
+      else if(linked.length>1)why='conversation linked to more than one ticket';
+      else if(ids.length===1){t=tickets.find(x=>String(x.Id)===ids[0]);if(!t)why='ticket #'+ids[0]+' is not on Master';}
+      else why=ids.length?'subjects name tickets '+ids.join(', '):'no conversation ID or ticket number';
+      if(!t){ms.forEach(m=>audit.unmatched.push({messageId:m.messageId,receivedAt:m.receivedAt,side:m.side,reason:why}));return;}
+      const h=hits[String(t.Id)]=hits[String(t.Id)]||{t,convs:[],ms:[]};h.convs.push(conv);h.ms.push(...ms);
+    });
+    Object.keys(hits).forEach(id=>{
+      const {t,convs}=hits[id],cut=present(t['Closed At'])?epoch(t['Closed At']):Infinity;
+      const ms=hits[id].ms.filter(m=>Date.parse(m.receivedAt)<=cut).sort((a,b)=>Date.parse(a.receivedAt)-Date.parse(b.receivedAt));
+      if(!ms.length)return;
+      audit.matched++;
+      const set=(col: string,v: Cell)=>{if(!headers.includes(col)){if(!audit.missingColumns.includes(col))audit.missingColumns.push(col);return;}if(String(t[col]??'')===String(v))return;audit.changes.push({ticketId:t.Id,field:col,from:t[col]??'',to:v});t[col]=v;};
+      const inbound=ms.filter(m=>m.side==='Arietis'),first=inbound[0],lastIn=inbound[inbound.length-1],last=ms[ms.length-1];
+      if(first){
+        const cur=t['Date of first reply from Arietis:'];
+        if(!present(cur))set('Date of first reply from Arietis:',first.receivedAt);
+        else if(day(cur)!==day(first.receivedAt))audit.differences.push({ticketId:t.Id,sheet:day(cur),inbox:day(first.receivedAt)});
+        if(!present(t['First Reply At'])||Date.parse(first.receivedAt)<epoch(t['First Reply At']))set('First Reply At',first.receivedAt);
+        if(!present(t['Last Reply At'])||Date.parse(lastIn.receivedAt)>epoch(t['Last Reply At']))set('Last Reply At',lastIn.receivedAt);
+      }
+      if(!present(t['Last Message At'])||Date.parse(last.receivedAt)>epoch(t['Last Message At'])){set('Last Message At',last.receivedAt);set('Last Message From',last.side);}
+      const mine=String(t['Vendor Conversation ID']||'');
+      if(!mine&&convs.length===1&&!tickets.some(x=>x!==t&&String(x['Vendor Conversation ID'])===convs[0]))set('Vendor Conversation ID',convs[0]);
+      else if(!convs.includes(mine)||convs.length>1)audit.notes.push({ticketId:t.Id,note:mine?'replies also found in another conversation; ID kept':'more than one conversation; ID left blank'});
+    });
   }else if(operation!=='digest')throw Error('Unknown operation');
   // Derived columns use the shared rules: SLA clocks start at form submission (Completion time),
   // receipt due +2 business days, resolution due +5, plus the needs-action list.
@@ -105,7 +154,7 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
     derivedColumns(e).forEach(([col,value])=>{if(headers.includes(col))t[col]=value;});
   });
   // Single serialized worker is mandatory: no independent flows may race this write.
-  if(operation!=='digest'){
+  if(operation!=='digest'&&!(operation==='audit'&&audit.mode!=='apply')){
     if(tickets.length)master.getRangeByIndexes(1,0,tickets.length,headers.length).setValues(tickets.map(t=>headers.map(h=>t[h]??'')));
     const tables=master.getTables();if(tables.length)tables[0].resize(master.getRangeByIndexes(0,0,tickets.length+1,headers.length));
     const stateRows=Object.keys(states).map(id=>[id,JSON.stringify(states[id].baseline),JSON.stringify(states[id].overrides),JSON.stringify(states[id].conflicts)]);
@@ -121,5 +170,6 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
     // Email summary deliberately omits MRN, patient, notes, balances, attachments.
     groups[recipient].push({'Id':t.Id,'Patient Clinic:':t['Patient Clinic:'],'Status:':t['Status:'],'Confirmation Due':t['Confirmation Due'],'Resolution Due':t['Resolution Due'],'Escalation Flag':t['Escalation Flag'],'Sync Conflicts':t['Sync Conflicts'],'Reminder Flags':t['Reminder Flags']});
   });
+  if(operation==='audit')return JSON.stringify(audit);
   return JSON.stringify({processed:tickets.length,unmatched,digests:Object.keys(groups).map(email=>({email,tickets:groups[email]}))});
 }

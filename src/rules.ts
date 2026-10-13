@@ -38,7 +38,9 @@ const COL = {
   convId: "Vendor Conversation ID",
   sentAt: "Submitted to Vendor At",
   firstReplyAt: "First Reply At",        // flows may instead write the timestamp into "Date of first reply from Arietis:"
-  lastReplyAt: "Last Reply At",
+  lastReplyAt: "Last Reply At",          // newest Arietis reply
+  lastMsgAt: "Last Message At",          // newest message either way (inbox audit)
+  lastMsgFrom: "Last Message From",      // "Arietis" or "MHS"
   deletedAt: "Deleted At",
   closedAt: "Closed At",
   confirmDue: "Confirmation Due",
@@ -77,11 +79,12 @@ const EXTRA_COLS: string[] = [
   COL.deletedAt, COL.ownerEmail, COL.convId, COL.sentAt, COL.lastReplyAt, COL.closedAt, COL.confirmDue, COL.resolveDue, COL.escFlag,
   COL.conflicts, COL.followUpAt, COL.reminderFlags, COL.ehr, COL.cc, COL.updBy, COL.updAt,
   COL.workNotes, COL.opsFlag, COL.opsReason, COL.opsBy, COL.opsAt, COL.commitment, COL.followUpDue, COL.reviewNotes, COL.reviewedAt,
+  COL.lastMsgAt, COL.lastMsgFrom,
 ];
 const MASTER_COLS: string[] = FORM_COLS.concat(EXTRA_COLS);
 const DATE_COLS: string[] = [
   COL.start, COL.submitted, COL.firstReplyDate, COL.outreachDate, COL.resolutionDate, COL.sentAt, COL.firstReplyAt,
-  COL.lastReplyAt, COL.closedAt, COL.followUpAt, COL.updAt, COL.rawSynced, COL.opsAt, COL.followUpDue, COL.reviewedAt,
+  COL.lastReplyAt, COL.closedAt, COL.followUpAt, COL.updAt, COL.rawSynced, COL.opsAt, COL.followUpDue, COL.reviewedAt, COL.lastMsgAt,
 ];
 /** Date-only columns (written as dates, not timestamps). */
 const DATE_ONLY_COLS: string[] = [COL.firstReplyDate, COL.outreachDate, COL.resolutionDate, COL.followUpDue, COL.followUpAt];

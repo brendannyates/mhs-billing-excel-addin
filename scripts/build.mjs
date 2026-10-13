@@ -3,7 +3,8 @@
 import { stripTypeScriptTypes } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+import { fileURLToPath } from "node:url";
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
 const rules = read("src/rules.ts");
 const names = [...rules.matchAll(/^(?:const|let|function)\s+([A-Za-z_]\w*)/gm)].map((m) => m[1]);
