@@ -31,13 +31,13 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
   if(!/^\d{4}-\d{2}-\d{2}$/.test(localToday))throw Error('Pass localToday as Pacific YYYY-MM-DD.');
   const master=workbook.getWorksheet('Master'),raw=workbook.getWorksheet('Raw Data'),stateSheet=workbook.getWorksheet('_SyncState'),settings=workbook.getWorksheet('Settings');
   if(!master||!raw||!stateSheet||!settings)throw Error('Initialize with Excel add-in first.');
-  const values=master.getUsedRange().getValues(),headers=values[0].map(String),tickets=values.slice(1).filter(r=>present(r[0])).map(r=>object(headers,r));
+  const values=master.getUsedRange().getValues(),headers=values[0].map((x)=>String(x)),tickets=values.slice(1).filter(r=>present(r[0])).map(r=>object(headers,r));
   const duplicate=new Set<string>();tickets.forEach(t=>{if(duplicate.has(String(t.Id)))throw Error('Duplicate Master Id');duplicate.add(String(t.Id));});
   const sv=stateSheet.getUsedRange().getValues(),states: {[id: string]: State}={};sv.slice(1).forEach(r=>{if(present(r[0]))states[String(r[0])]={baseline:JSON.parse(String(r[1]||'{}')),overrides:JSON.parse(String(r[2]||'[]')),conflicts:JSON.parse(String(r[3]||'[]'))};});
   const holidays=settings.getUsedRange().getValues().slice(1).map(r=>String(r[3]||'')).filter(v=>/^\d{4}-\d{2}-\d{2}$/.test(v));
   const unmatched: string[]=[];
   const syncFromRaw=()=>{
-    const rv=raw.getUsedRange().getValues(),rh=rv[0].map(String),seen=new Set<string>();
+    const rv=raw.getUsedRange().getValues(),rh=rv[0].map((x)=>String(x)),seen=new Set<string>();
     rv.slice(1).forEach(r=>{if(present(r[0])){const id=String(r[0]);if(seen.has(id))throw Error('Duplicate Raw Data Id');seen.add(id);}});
     rv.slice(1).forEach(r=>{
       if(!present(r[0]))return;const source=object(rh,r),id=String(r[0]);let found=tickets.find(t=>String(t.Id)===id);
@@ -1480,12 +1480,12 @@ function recapTable(rows: Ticket[]): string {
   if (!rows.length) return "<p>No tickets in this section.</p>";
   const th = (h: string): string => '<th style="text-align:left;border:1px solid #c4d2ce;padding:8px">' + h + "</th>";
   const td = (v: string): string => '<td style="border:1px solid #c4d2ce;padding:8px">' + escHtml(v) + "</td>";
-  return '<table style="border-collapse:collapse;width:100%"><thead><tr>' + ["Date Opened", "MRN", "Patient", "Ticket Number", "Reply Status", "Resolution Status"].map(th).join("") + "</tr></thead><tbody>" +
+  return '<table style="border-collapse:collapse;width:100%"><thead><tr>' + ["Date Opened", "MRN", "Patient", "Ticket Number", "Reply Status", "Resolution Status"].map((x)=>th(x)).join("") + "</tr></thead><tbody>" +
     rows.map((t) => "<tr>" + [
       fmtDate(t.submitted), t.mrn, t.patient, "#" + t.id,
       t.receipt.at !== null ? "Confirmed " + fmtDate(t.receipt.at) : t.receipt.state === "met-nodate" ? "Confirmed" : t.receipt.state === "breached" ? "Awaiting reply — " + daysOverdue(t.receipt.bdOver) : "Awaiting reply",
       t.isOpen ? t.status + (t.resolution.state === "breached" ? " — " + daysOverdue(t.resolution.bdOver) : "") : t.status,
-    ].map(td).join("") + "</tr>").join("") + "</tbody></table>";
+    ].map((x)=>td(x)).join("") + "</tr>").join("") + "</tbody></table>";
 }
 function buildClinicRecap(tickets: Ticket[], clinic: string, mode: string, ctx: EvalCtx, workbookUrl: string): ClinicRecap {
   const today = Math.floor(ctx.now);

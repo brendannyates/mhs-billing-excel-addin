@@ -29,13 +29,13 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
   if(!/^\d{4}-\d{2}-\d{2}$/.test(localToday))throw Error('Pass localToday as Pacific YYYY-MM-DD.');
   const master=workbook.getWorksheet('Master'),raw=workbook.getWorksheet('Raw Data'),stateSheet=workbook.getWorksheet('_SyncState'),settings=workbook.getWorksheet('Settings');
   if(!master||!raw||!stateSheet||!settings)throw Error('Initialize with Excel add-in first.');
-  const values=master.getUsedRange().getValues(),headers=values[0].map(String),tickets=values.slice(1).filter(r=>present(r[0])).map(r=>object(headers,r));
+  const values=master.getUsedRange().getValues(),headers=values[0].map((x)=>String(x)),tickets=values.slice(1).filter(r=>present(r[0])).map(r=>object(headers,r));
   const duplicate=new Set<string>();tickets.forEach(t=>{if(duplicate.has(String(t.Id)))throw Error('Duplicate Master Id');duplicate.add(String(t.Id));});
   const sv=stateSheet.getUsedRange().getValues(),states: {[id: string]: State}={};sv.slice(1).forEach(r=>{if(present(r[0]))states[String(r[0])]={baseline:JSON.parse(String(r[1]||'{}')),overrides:JSON.parse(String(r[2]||'[]')),conflicts:JSON.parse(String(r[3]||'[]'))};});
   const holidays=settings.getUsedRange().getValues().slice(1).map(r=>String(r[3]||'')).filter(v=>/^\d{4}-\d{2}-\d{2}$/.test(v));
   const unmatched: string[]=[];
   const syncFromRaw=()=>{
-    const rv=raw.getUsedRange().getValues(),rh=rv[0].map(String),seen=new Set<string>();
+    const rv=raw.getUsedRange().getValues(),rh=rv[0].map((x)=>String(x)),seen=new Set<string>();
     rv.slice(1).forEach(r=>{if(present(r[0])){const id=String(r[0]);if(seen.has(id))throw Error('Duplicate Raw Data Id');seen.add(id);}});
     rv.slice(1).forEach(r=>{
       if(!present(r[0]))return;const source=object(rh,r),id=String(r[0]);let found=tickets.find(t=>String(t.Id)===id);

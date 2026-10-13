@@ -1352,12 +1352,12 @@ function recapTable(rows          )         {
   if (!rows.length) return "<p>No tickets in this section.</p>";
   const th = (h        )         => '<th style="text-align:left;border:1px solid #c4d2ce;padding:8px">' + h + "</th>";
   const td = (v        )         => '<td style="border:1px solid #c4d2ce;padding:8px">' + escHtml(v) + "</td>";
-  return '<table style="border-collapse:collapse;width:100%"><thead><tr>' + ["Date Opened", "MRN", "Patient", "Ticket Number", "Reply Status", "Resolution Status"].map(th).join("") + "</tr></thead><tbody>" +
+  return '<table style="border-collapse:collapse;width:100%"><thead><tr>' + ["Date Opened", "MRN", "Patient", "Ticket Number", "Reply Status", "Resolution Status"].map((x)=>th(x)).join("") + "</tr></thead><tbody>" +
     rows.map((t) => "<tr>" + [
       fmtDate(t.submitted), t.mrn, t.patient, "#" + t.id,
       t.receipt.at !== null ? "Confirmed " + fmtDate(t.receipt.at) : t.receipt.state === "met-nodate" ? "Confirmed" : t.receipt.state === "breached" ? "Awaiting reply — " + daysOverdue(t.receipt.bdOver) : "Awaiting reply",
       t.isOpen ? t.status + (t.resolution.state === "breached" ? " — " + daysOverdue(t.resolution.bdOver) : "") : t.status,
-    ].map(td).join("") + "</tr>").join("") + "</tbody></table>";
+    ].map((x)=>td(x)).join("") + "</tr>").join("") + "</tbody></table>";
 }
 function buildClinicRecap(tickets          , clinic        , mode        , ctx         , workbookUrl        )              {
   const today = Math.floor(ctx.now);
