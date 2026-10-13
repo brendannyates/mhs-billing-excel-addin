@@ -44,6 +44,12 @@ Each ticket must have ONE dedicated vendor conversation before automatic reply m
 
 If the sender action does not return conversationId, retrieve the sent message using its message identifier or a unique ticket token in its subject and bounded sent-time search, then store its conversationId after verifying exactly one match. This initialization may use the ticket token; subsequent Arietis matching uses conversationId. Do not assign one conversation to multiple tickets. The add-in lets a user enter an already verified conversationId.
 
+**Billing Automation `operation=register`** does this write. Pass `repliesJson` as:
+```
+[{"ticketId":"<Forms responseId>","conversationId":"<Outlook conversationId>","sentAt":"<sent time, ISO>"}]
+```
+It first runs the same Raw Data → Master sync as `operation=sync`, so a just-submitted ticket is on Master. Then it sets **Vendor Conversation ID** and, while blank, **Submitted to Vendor At**. The Id comes back in `unmatched` when the ticket is not on Master yet (Forms sync lag), when the ID is already used by another ticket, or when the ticket already has a different ID. The flow should wait and retry on `unmatched`; an existing ID is never overwritten.
+
 ## 3. Inbox reply capture
 Trigger **Office 365 Outlook — When a new email arrives in a shared mailbox (V2)** for the actual MHS billing mailbox (address not supplied). Filter exact normalized From address `patientbilling@arietishealth.com`. Take the actual sender address property, not display name. Include all monitored mail folders or avoid inbox rules that bypass the monitored folder; add scheduled reconciliation for moved messages.
 
@@ -53,6 +59,8 @@ Queue `operation=reply`, and `repliesJson` with this shape:
   "receivedAt":"2026-10-02T21:30:00Z","messageId":"<Outlook message id>"}]
 ```
 The script uses the message received timestamp, not flow execution time. First reply=min(receivedAt), last reply=max(receivedAt), tolerating retries and out-of-order events. Exactly one ticket must match; zero/ambiguous matches return message ids in `unmatched` for a restricted review queue. No automatic MRN or subject fallback.
+
+For the newest Arietis reply, the script also sets **Last Updated By** = `Arietis (auto)` and **Last Updated At** = the received time, unless staff updated the ticket after that reply. `Arietis (auto)` never counts as a staff review, so the add-in keeps showing "New Arietis reply — review & update" until someone edits the ticket.
 
 An Arietis message counts as receipt confirmation by default. If automated acknowledgments or unrelated replies should not count, add an explicit policy filter before queueing the message. Receipt does not imply resolution; only staff closes the ticket after review. Replies received after Closed At do not change the frozen history; a late-processed message received before closure can correct the history.
 
