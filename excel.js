@@ -9,9 +9,6 @@ const BE = globalThis.BE;
 const C = BE.COL;
 const LOG = 'Activity Log';
 const LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Ticket Id', 'Field', 'Old value', 'New value', 'Details'];
-// MHS-only link to the live workbook (requires an MHS Microsoft 365 sign-in). Initialize writes it to
-// Settings "Workbook URL" when that cell is blank, so email links work without anyone typing it.
-const DEFAULT_WORKBOOK_URL = ''; // Set the private workbook link on the workbook Settings sheet.
 const SETTING_DEFAULTS = [
   ['Receipt SLA business days', 2], ['Resolution SLA business days', 5], ['Stale after business days', 3],
   ['Arietis email', 'patientbilling@arietishealth.com'], ['Billing inbox', 'billing@mindfulhealthsolutions.com'],
@@ -22,16 +19,24 @@ const nowSerial = () => { const d = new Date(); return (d.getTime() - d.getTimez
 const show = (col, v) => (BE.DATE_COLS.includes(col) ? (BE.toSerial(v) === null ? '' : BE.fmtDateTime(BE.toSerial(v))) : BE.norm(v));
 let snapshot = new Map(); // Id -> Master row object as last loaded (for "someone else changed this" checks)
 
-async function used(ctx, name) {
-  const ws = ctx.workbook.worksheets.getItemOrNullObject(name); await ctx.sync();
-  if (ws.isNullObject) return null;
-  const r = ws.getUsedRangeOrNullObject(true); r.load('values,rowCount,columnCount'); await ctx.sync();
-  return { ws, values: r.isNullObject ? [] : r.values };
+// Used ranges of several sheets in two syncs total. Entries are a sheet name (loads values) or
+// [name, true] to load only the row count. Missing sheet -> null; empty sheet -> values [], rows 0.
+async function used(ctx, specs) {
+  const list = specs.map((s) => (Array.isArray(s) ? s : [s, false]));
+  const sheets = list.map(([name]) => ctx.workbook.worksheets.getItemOrNullObject(name)); await ctx.sync();
+  const ranges = sheets.map((ws, i) => {
+    if (ws.isNullObject) return null;
+    const r = ws.getUsedRangeOrNullObject(true); r.load(list[i][1] ? 'rowCount' : 'values,rowCount'); return r;
+  });
+  await ctx.sync();
+  return ranges.map((r, i) => (r === null ? null : {
+    ws: sheets[i], values: r.isNullObject || list[i][1] ? [] : r.values, rows: r.isNullObject ? 0 : r.rowCount,
+  }));
 }
-function appendLog(ctx, logValues, entries) {
-  if (!entries.length || !logValues) return;
+function appendLog(ctx, logRows, entries) {
+  if (!entries.length || logRows == null) return;
   const ws = ctx.workbook.worksheets.getItem(LOG);
-  const start = Math.max(1, logValues.length);
+  const start = Math.max(1, logRows);
   const rng = ws.getRangeByIndexes(start, 0, entries.length, LOG_HEADERS.length);
   rng.values = entries;
   ws.getRangeByIndexes(start, 0, entries.length, 1).numberFormat = entries.map(() => ['m/d/yyyy h:mm AM/PM']);
@@ -68,7 +73,7 @@ export const ExcelSource = {
       if (!has('_SyncState')) { const s = tabs.add('_SyncState'); s.getRange('A1:D1').values = [['Id', 'Baseline JSON', 'Override Fields JSON', 'Conflicts JSON']]; s.visibility = 'Hidden'; log.push('Added _SyncState'); }
       if (!has('Settings')) {
         const s = tabs.add('Settings');
-        s.getRange('A1:B6').values = [['Setting', 'Value'], ['Time zone', 'Pacific Standard Time'], ['Business open', '09:00'], ['Business close', '17:00'], ['Weekly recap day', 'Friday'], ['Workbook URL', DEFAULT_WORKBOOK_URL]];
+        s.getRange('A1:B6').values = [['Setting', 'Value'], ['Time zone', 'Pacific Standard Time'], ['Business open', '09:00'], ['Business close', '17:00'], ['Weekly recap day', 'Friday'], ['Workbook URL', '']]; // staff paste the private MHS-only workbook link here
         s.getRange('D1:D2').values = [['Holiday dates (YYYY-MM-DD)'], ['']];
         log.push('Added Settings');
       }
@@ -80,12 +85,6 @@ export const ExcelSource = {
       let next = Math.max(st.values.length, 6);
       const add = SETTING_DEFAULTS.filter(([k]) => !keys.has(k.toLowerCase().replace(/[^a-z0-9]/g, '')));
       if (add.length) { ctx.workbook.worksheets.getItem('Settings').getRangeByIndexes(next, 0, add.length, 2).values = add; next += add.length; }
-      // Workbook URL: fill the built-in MHS link if the cell is blank (never overwrite a value someone set).
-      const urlRow = st.values.findIndex((r) => String(r[0]).toLowerCase().replace(/[^a-z0-9]/g, '') === 'workbookurl');
-      if (urlRow >= 0 && !String(st.values[urlRow][1] || '').trim()) {
-        ctx.workbook.worksheets.getItem('Settings').getCell(urlRow, 1).values = [[DEFAULT_WORKBOOK_URL]];
-        log.push('Set Workbook URL');
-      }
       master.tables.load('items/name'); await ctx.sync();
       const tableRange = master.getRangeByIndexes(0, 0, range.values.length, h.length);
       if (!master.tables.items.length) { const t = master.tables.add(tableRange, true); t.name = 'BillingMaster'; }
@@ -97,7 +96,7 @@ export const ExcelSource = {
 
   async load() {
     return Excel.run(async (ctx) => {
-      const m = await used(ctx, 'Master'), ref = await used(ctx, 'REF'), st = await used(ctx, 'Settings'), lg = await used(ctx, LOG);
+      const [m, ref, st, lg] = await used(ctx, ['Master', 'REF', 'Settings', LOG]);
       const headers = m.values[0].map(String);
       const rows = m.values.slice(1).filter((r) => filled(r[0]));
       snapshot = new Map(rows.map((r) => [String(r[0]), Object.fromEntries(headers.map((h, i) => [h, r[i] ?? '']))]));
@@ -118,7 +117,7 @@ export const ExcelSource = {
       const ws = ctx.workbook.worksheets.getItem('Master'), state = ctx.workbook.worksheets.getItem('_SyncState');
       const mr = ws.getUsedRange(), rr = ctx.workbook.worksheets.getItem('Raw Data').getUsedRange(), sr = state.getUsedRange();
       mr.load('values'); rr.load('values'); sr.load('values'); await ctx.sync();
-      const lg = await used(ctx, LOG), st = await used(ctx, 'Settings');
+      const [lg, st] = await used(ctx, [[LOG, true], 'Settings']);
       const mh = mr.values[0].map(String), rh = rr.values[0].map(String), index = new Map();
       mr.values.slice(1).forEach((r, i) => { if (filled(r[0])) { if (index.has(String(r[0]))) throw Error('Duplicate Id ' + r[0] + ' on Master; sync stopped. Remove the extra row.'); index.set(String(r[0]), i + 1); } });
       const seen = new Set();
@@ -175,7 +174,7 @@ export const ExcelSource = {
         for (let j = 0; j < mh.length; j++) if (!sameCell(mh[j], out[i][j], mr.values[i][j])) ws.getCell(i, j).values = [[out[i][j] ?? '']];
       }
       if (states.size) state.getRangeByIndexes(1, 0, states.size, 4).values = [...states.values()];
-      appendLog(ctx, lg && lg.values, entries);
+      appendLog(ctx, lg && lg.rows, entries);
       ws.tables.load('items/name'); await ctx.sync();
       if (ws.tables.items.length) ws.tables.items[0].resize(ws.getRangeByIndexes(0, 0, out.length, mh.length));
       await ctx.sync();
@@ -188,7 +187,7 @@ export const ExcelSource = {
     return Excel.run(async (ctx) => {
       const ws = ctx.workbook.worksheets.getItem('Master'), state = ctx.workbook.worksheets.getItem('_SyncState');
       const range = ws.getUsedRange(), sr = state.getUsedRange(); range.load('values'); sr.load('values'); await ctx.sync();
-      const lg = await used(ctx, LOG);
+      const [lg] = await used(ctx, [[LOG, true]]);
       const h = range.values[0].map(String), pos = range.values.findIndex((r, i) => i > 0 && String(r[0]) === String(id));
       if (pos < 0) throw Error('Ticket #' + id + ' is no longer on Master. Refresh.');
       const before = snapshot.get(String(id)) || {};
@@ -217,7 +216,7 @@ export const ExcelSource = {
       stateRow[2] = JSON.stringify(override); stateRow[3] = '[]';
       state.getRangeByIndexes(sp < 0 ? sr.values.length : sp, 0, 1, 4).values = [stateRow];
       const cj = h.indexOf(C.conflicts); if (cj >= 0) ws.getCell(pos, cj).values = [['']];
-      appendLog(ctx, lg && lg.values, changes.map((e) => logRow(by, 'Edit', id, e.col.replace(/:$/, ''), show(e.col, cur[e.col]), show(e.col, e.value), 'Add-in')));
+      appendLog(ctx, lg && lg.rows, changes.map((e) => logRow(by, 'Edit', id, e.col.replace(/:$/, ''), show(e.col, cur[e.col]), show(e.col, e.value), 'Add-in')));
       await ctx.sync();
       return { changed: changes.length };
     });
