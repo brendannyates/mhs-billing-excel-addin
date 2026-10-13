@@ -54,7 +54,7 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
           if(st.baseline[h]!==undefined&&String(target[h])===String(st.baseline[h]))target[h]=source[h];else st.conflicts.push(h);
         }
       });
-      target['Owner Email']=target['Owner Email']||target.Email||'';st.baseline=source;st.conflicts=[...new Set(st.conflicts)].filter(k=>MASTER_OWNED_COLS.indexOf(k)<0&&NEVER_MERGE_COLS.indexOf(k)<0);target['Sync Conflicts']=st.conflicts.join('; ');states[id]=st;
+      target['Owner Email']=target['Owner Email']||target.Email||'';st.baseline=source;st.conflicts=Array.from(new Set(st.conflicts)).filter(k=>MASTER_OWNED_COLS.indexOf(k)<0&&NEVER_MERGE_COLS.indexOf(k)<0);target['Sync Conflicts']=st.conflicts.join('; ');states[id]=st;
     });
   };
   if(operation==='sync'){
@@ -90,7 +90,7 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
       // Stamp who/when for the newest reply unless staff updated the ticket after it.
       const upd=t['Last Updated At'];
       if(headers.includes('Last Updated At')&&(!present(upd)||received>epoch(upd))){t['Last Updated By']=AUTO_REPLY_BY;t['Last Updated At']=r.receivedAt;}
-      const st=states[String(t.Id)]||{baseline:{},overrides:[],conflicts:[]};st.overrides=[...new Set([...st.overrides,'Date of first reply from Arietis:','Status:'])];states[String(t.Id)]=st;
+      const st=states[String(t.Id)]||{baseline:{},overrides:[],conflicts:[]};st.overrides=Array.from(new Set(st.overrides.concat(['Date of first reply from Arietis:','Status:'])));states[String(t.Id)]=st;
     });
   }else if(operation!=='digest')throw Error('Unknown operation');
   // Derived columns use the shared rules: SLA clocks start at form submission (Completion time),
