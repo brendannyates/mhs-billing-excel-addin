@@ -90,6 +90,8 @@ const MASTER_OWNED_COLS: string[] = [
   "Status:", "Date of first reply from Arietis:", "Date of Patient Outreach (if applicable):", "Date of Resolution:",
   "Was false verification of balance/charge given by Arietis?", "Patient Feedback/Service Recovery Flag:", "Source of Error:", "Outcome:", "EHR Task",
 ];
+/** Last Updated By value the reply flow stamps; it never counts as a staff review, so "New Arietis reply" stays up until staff edit the ticket. */
+const AUTO_REPLY_BY: string = "Arietis (auto)";
 /** Form fields that are never merged after import ("Choose an option:" flips to "Update…" when owners use the edit link). */
 const NEVER_MERGE_COLS: string[] = ["Choose an option:", "Form Edit Submission Link", "Column1"];
 /** Form fields a Forms "edit response" may legitimately change on an existing ticket. */
@@ -507,7 +509,7 @@ function evaluateTicket(t: Ticket, ctx: EvalCtx): Ticket {
     if (t.resolution.state === "due-today") a.push({ code: "RES_DUE", text: "Resolution due today", sev: 2, who: "arietis" });
     if (t.stage === "Awaiting receipt" && rcptAt !== null) {
       a.push({ code: "REPLY_UNLOGGED", text: "Arietis replied " + fmtDateTime(rcptAt) + " — update status", sev: 2, who: "owner" });
-    } else if (t.lastReplyAt !== null && (t.updAt === null || t.lastReplyAt > t.updAt + 1 / 1440)) {
+    } else if (t.lastReplyAt !== null && (t.updAt === null || t.lastReplyAt > t.updAt + 1 / 1440 || t.updBy === AUTO_REPLY_BY)) {
       a.push({ code: "NEW_REPLY", text: "New Arietis reply " + fmtDateTime(t.lastReplyAt) + " — review & update", sev: 2, who: "owner" });
     }
     if (t.clinic === "(No clinic)" || (!t.patient && !t.mrn)) {

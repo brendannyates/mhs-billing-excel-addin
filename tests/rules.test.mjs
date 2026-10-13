@@ -128,3 +128,10 @@ test('last activity reflects a staff update', () => {
   const t=one({'Last Updated At':'2026-10-08T15:30'},'2026-10-09');
   assert.equal(t.lastActivity,S('2026-10-08T15:30'));
 });
+
+test('auto-stamped Arietis reply keeps "New Arietis reply" until staff update', () => {
+  const base = { 'Status:': 'Arietis - Confirmed Receipt', 'Date of first reply from Arietis:': '2026-10-05', 'Last Reply At': '2026-10-06T17:00:00Z' };
+  const codes = (o) => one({ ...base, ...o }, '2026-10-06T12:00').actions.map((a) => a.code);
+  assert.ok(codes({ 'Last Updated By': 'Arietis (auto)', 'Last Updated At': '2026-10-06T17:00:00Z' }).includes('NEW_REPLY'));
+  assert.ok(!codes({ 'Last Updated By': 'staff@example.com', 'Last Updated At': '2026-10-06T18:00:00Z' }).includes('NEW_REPLY'));
+});

@@ -2,6 +2,7 @@
 // Cell, Row (evaluated model) and the SLA/action rules come from the shared rules engine appended below.
 type Row = {[key: string]: Cell};
 type Reply = {conversationId: string; sender: string; receivedAt: string; messageId: string};
+type Registration = {ticketId: string | number; conversationId: string; sentAt: string};
 type State = {baseline: Row; overrides: string[]; conflicts: string[]};
 function present(v: Cell | undefined): boolean { return v !== undefined && String(v).trim() !== ''; }
 function isClosedRow(t: Row): boolean { return /^(Closed|Resolved)\b/.test(String(t['Status:']||'')); }
@@ -33,7 +34,7 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
   const sv=stateSheet.getUsedRange().getValues(),states: {[id: string]: State}={};sv.slice(1).forEach(r=>{if(present(r[0]))states[String(r[0])]={baseline:JSON.parse(String(r[1]||'{}')),overrides:JSON.parse(String(r[2]||'[]')),conflicts:JSON.parse(String(r[3]||'[]'))};});
   const holidays=settings.getUsedRange().getValues().slice(1).map(r=>String(r[3]||'')).filter(v=>/^\d{4}-\d{2}-\d{2}$/.test(v));
   const unmatched: string[]=[];
-  if(operation==='sync'){
+  const syncFromRaw=()=>{
     const rv=raw.getUsedRange().getValues(),rh=rv[0].map(String),seen=new Set<string>();
     rv.slice(1).forEach(r=>{if(present(r[0])){const id=String(r[0]);if(seen.has(id))throw Error('Duplicate Raw Data Id');seen.add(id);}});
     rv.slice(1).forEach(r=>{
@@ -55,6 +56,24 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
       });
       target['Owner Email']=target['Owner Email']||target.Email||'';st.baseline=source;st.conflicts=[...new Set(st.conflicts)].filter(k=>MASTER_OWNED_COLS.indexOf(k)<0&&NEVER_MERGE_COLS.indexOf(k)<0);target['Sync Conflicts']=st.conflicts.join('; ');states[id]=st;
     });
+  };
+  if(operation==='sync'){
+    syncFromRaw();
+  }else if(operation==='register'){
+    // Submission flow: link the outbound Arietis email's Outlook conversationId to its ticket.
+    // Syncs Raw Data first so a just-submitted ticket exists on Master. Unknown tickets or
+    // conflicting IDs come back in `unmatched` (the flow retries); an existing ID is never overwritten.
+    syncFromRaw();
+    const regs: Registration[]=JSON.parse(repliesJson);
+    regs.forEach(g=>{
+      const id=String(g.ticketId).trim(),conv=String(g.conversationId||'').trim();
+      if(!id||!conv)throw Error('Invalid register payload');
+      const t=tickets.find(x=>String(x.Id)===id);
+      const taken=tickets.some(x=>String(x.Id)!==id&&String(x['Vendor Conversation ID'])===conv);
+      if(!t||taken||(present(t['Vendor Conversation ID'])&&String(t['Vendor Conversation ID'])!==conv)){unmatched.push(id);return;}
+      t['Vendor Conversation ID']=conv;
+      if(!present(t['Submitted to Vendor At'])&&Number.isFinite(Date.parse(g.sentAt)))t['Submitted to Vendor At']=day(g.sentAt);
+    });
   }else if(operation==='reply'){
     const replies: Reply[]=JSON.parse(repliesJson);
     replies.forEach(r=>{
@@ -68,6 +87,9 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
       if(!present(first)||received<epoch(first))t['Date of first reply from Arietis:']=r.receivedAt;
       if(!present(last)||received>epoch(last))t['Last Reply At']=r.receivedAt;
       if(!isClosedRow(t)&&t['Status:']==='MHS - Submitted to Arietis')t['Status:']='Arietis - Confirmed Receipt';
+      // Stamp who/when for the newest reply unless staff updated the ticket after it.
+      const upd=t['Last Updated At'];
+      if(headers.includes('Last Updated At')&&(!present(upd)||received>epoch(upd))){t['Last Updated By']=AUTO_REPLY_BY;t['Last Updated At']=r.receivedAt;}
       const st=states[String(t.Id)]||{baseline:{},overrides:[],conflicts:[]};st.overrides=[...new Set([...st.overrides,'Date of first reply from Arietis:','Status:'])];states[String(t.Id)]=st;
     });
   }else if(operation!=='digest')throw Error('Unknown operation');
