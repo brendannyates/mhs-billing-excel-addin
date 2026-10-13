@@ -135,3 +135,13 @@ test('auto-stamped Arietis reply keeps "New Arietis reply" until staff update', 
   assert.ok(codes({ 'Last Updated By': 'Arietis (auto)', 'Last Updated At': '2026-10-06T17:00:00Z' }).includes('NEW_REPLY'));
   assert.ok(!codes({ 'Last Updated By': 'staff@example.com', 'Last Updated At': '2026-10-06T18:00:00Z' }).includes('NEW_REPLY'));
 });
+
+test('a clock finished past due is not called late on screen, but still counts as a miss in stats', () => {
+  const t = one({ 'Date of first reply from Arietis:': '2026-10-09T15:00' }, '2026-10-13');
+  assert.equal(t.receipt.state, 'late');
+  assert.match(BE.slaText(t.receipt), /^Done /);
+  assert.doesNotMatch(BE.slaText(t.receipt), /late|overdue/i);
+  const st = BE.computeStats([t]).total;
+  assert.equal(st.rcptMiss, 1);
+  assert.equal(st.rcptOnTime, 0);
+});

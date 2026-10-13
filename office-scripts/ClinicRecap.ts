@@ -938,7 +938,7 @@ function daysOverdue(n: number): string { return n + (n === 1 ? " day" : " days"
 function slaText(s: SlaState): string {
   switch (s.state) {
     case "met": return "Met " + fmtShort(s.at);
-    case "late": return "Late " + fmtShort(s.at) + " (" + daysOverdue(s.bdOver) + ")";
+    case "late": return "Done " + fmtShort(s.at); // finished past due: counted as a miss in stats, not called out on screen or in emails
     case "met-nodate": return "Met (no date)";
     case "due-today": return "Due today";
     case "breached": return daysOverdue(s.bdOver);
@@ -946,7 +946,7 @@ function slaText(s: SlaState): string {
   }
 }
 function slaColor(s: SlaState): string {
-  if (s.state === "breached" || s.state === "late") return EM.red;
+  if (s.state === "breached") return EM.red;
   if (s.state === "due-today") return EM.amber;
   if (s.state === "met" || s.state === "met-nodate") return EM.green;
   return EM.muted;

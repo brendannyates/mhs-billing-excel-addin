@@ -250,7 +250,6 @@
   function slaBadge(t) {
     if (!t.isOpen) {
       const r = t.resolution;
-      if (r.state === "late") return `<span class="sla bad" title="Resolved after the ${S.ctx.resolutionDays}-business-day SLA">Closed ${dayWord(r.bdOver)} late</span>`;
       return `<span class="sla ok">Closed ${r.at !== null ? BE.fmtShort(r.at) : ""}</span>`;
     }
     const useRcpt = t.stage === "Awaiting receipt" && t.receipt.at === null;
@@ -386,7 +385,7 @@
     if (!t) { S.review = null; return viewOps(); }
     const statusOpts = options(C.status).slice(); if (statusOpts.indexOf(t.status) < 0) statusOpts.unshift(t.status);
     const kv = (k, v, cls) => `<dt>${esc(k)}</dt><dd class="${cls || ""}">${v}</dd>`;
-    const sla = (s) => `<span class="sla ${s.state === "breached" || s.state === "late" ? "bad" : s.state === "due-today" ? "warn" : s.state === "met" || s.state === "met-nodate" ? "ok" : "neutral"}">${esc(BE.slaText(s))}</span>`;
+    const sla = (s) => `<span class="sla ${s.state === "breached" ? "bad" : s.state === "due-today" ? "warn" : s.state === "met" || s.state === "met-nodate" ? "ok" : "neutral"}">${esc(BE.slaText(s))}</span>`;
     return `<div class="review">
       <div class="review-bar"><b>Review with Arietis</b><span class="muted tnum">${R.i + 1} of ${R.ids.length}</span><span class="sp"></span>
         <button class="btn sm" data-act="reviewPrev" ${R.i ? "" : "disabled"} aria-label="Previous">←</button><button class="btn sm" data-act="reviewNext" ${R.i < R.ids.length - 1 ? "" : "disabled"} aria-label="Next">→</button><button class="btn sm" data-act="reviewExit">Exit</button></div>
@@ -623,7 +622,7 @@
   function slaLine(label, s, days) {
     // The middle column already shows the due date, so a pending clock's badge counts days left rather than repeating it.
     const txt = s.state === "pending" ? dayWord(s.bdLeft) + " left" : BE.slaText(s);
-    const cls = s.state === "breached" || s.state === "late" ? "bad" : s.state === "due-today" ? "warn" : s.state === "met" || s.state === "met-nodate" ? "ok" : "neutral";
+    const cls = s.state === "breached" ? "bad" : s.state === "due-today" ? "warn" : s.state === "met" || s.state === "met-nodate" ? "ok" : "neutral";
     return `<span class="lab">${label} <span class="muted">(${days} business days)</span></span><span class="tnum">due ${BE.weekdayName(s.due)} ${BE.fmtDate(s.due)}</span><span class="sla ${cls}">${esc(txt)}</span>`;
   }
   function viewDetail(t) {
