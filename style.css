@@ -154,8 +154,6 @@ select:hover, input:hover, textarea:hover { border-color: var(--ink-3); }
 .od { flex: none; display: inline-flex; align-items: baseline; gap: 3px; height: 20px; padding: 0 7px; border-radius: 4px; background: var(--red-bg); color: var(--red); font-size: 11px; font-weight: 600; line-height: 20px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .od b { font-size: 12.5px; }
 .od-x { display: none; }
-.od.full .od-x { display: inline; }
-.actions-list li .od { margin-left: auto; }
 @media (min-width: 600px) { .od-x { display: inline; } }
 .trow .due { flex: none; font-size: 11px; font-weight: 600; }
 .due.bad { color: var(--red); } .due.warn { color: var(--amber); }
@@ -344,7 +342,7 @@ body.web { background: var(--bg); }
 .row-actions { display:flex; gap:6px; padding:6px 8px; }
 .grid .zero { color:var(--ink-3); }
 .seg { overflow-x:auto; flex-shrink:0; }
-@media(max-width:600px) { .top-actions { width:100%; } .header-search { flex:1; } .ticket-line .trow { flex-basis:100%; } .row-actions { margin-left:auto; } .queue-banner .seg { width:100%; } .queue-banner .submit-ticket { flex:1; } .timeline { grid-template-columns:1fr; gap:4px; } }
+@media(max-width:600px) { .top-actions { width:100%; } .header-search { flex:1; } .ticket-line .trow { flex-basis:100%; flex-wrap:wrap; height:auto; row-gap:2px; padding-top:6px; padding-bottom:2px; } .ticket-line .trow .pid { flex:1; } .ticket-line .trow .subj { order:9; flex-basis:100%; padding-left:57px; color:var(--ink-2); } .row-actions { padding-top:2px; } .row-actions { margin-left:auto; } .queue-banner .seg { width:100%; } .queue-banner .submit-ticket { flex:1; } .timeline { grid-template-columns:1fr; gap:4px; } }
 
 .view { min-width:0; }
 @media(min-width:900px) { .app { grid-template-rows:auto auto minmax(0,1fr); } .banner[hidden] { height:0; } }

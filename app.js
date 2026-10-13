@@ -261,8 +261,8 @@
     return `<span class="sla neutral" title="${k} due ${BE.fmtDate(s.due)}">${k} by ${BE.weekdayName(s.due)} ${BE.fmtShort(s.due)}</span>`;
   }
   function dayWord(n) { return n + (n === 1 ? " day" : " days"); }
-  /** Red tile: business days past SLA. Compact in narrow rows ("3 days"), full in the detail ("3 days overdue"). */
-  function odTile(n, full) { return `<span class="od${full ? " full" : ""}" title="${dayWord(n)} past SLA (business days)"><b>${n}</b> ${n === 1 ? "day" : "days"}<span class="od-x"> overdue</span></span>`; }
+  /** Red tile in ticket rows: business days past SLA ("3 days", or "3 days overdue" when there is room). */
+  function odTile(n) { return `<span class="od" title="${dayWord(n)} past SLA (business days)"><b>${n}</b> ${n === 1 ? "day" : "days"}<span class="od-x"> overdue</span></span>`; }
   function flagChips(t) {
     return t.flags.filter((f) => f !== "EHR task").map((f) => `<span class="flag ${f === "Critical" || f === "False verification" ? "red" : f === "High" || f === "Service recovery" ? "amber" : "gray"}">${esc(f === "Service recovery" ? "Svc recovery" : f === "False verification" ? "False verif." : f)}</span>`).join(" ");
   }
@@ -621,7 +621,8 @@
     return { col, value: BE.norm(el.value) };
   }
   function slaLine(label, s, days) {
-    const txt = BE.slaText(s);
+    // The middle column already shows the due date, so a pending clock's badge counts days left rather than repeating it.
+    const txt = s.state === "pending" ? dayWord(s.bdLeft) + " left" : BE.slaText(s);
     const cls = s.state === "breached" || s.state === "late" ? "bad" : s.state === "due-today" ? "warn" : s.state === "met" || s.state === "met-nodate" ? "ok" : "neutral";
     return `<span class="lab">${label} <span class="muted">(${days} business days)</span></span><span class="tnum">due ${BE.weekdayName(s.due)} ${BE.fmtDate(s.due)}</span><span class="sla ${cls}">${esc(txt)}</span>`;
   }
@@ -633,7 +634,7 @@
     h += `<div class="card"><div class="timeline">
       <span class="lab">Submitted</span><span class="tnum">${esc(BE.weekdayName(t.submitted || 0) + " " + BE.fmtDate(t.submitted) + " " + BE.fmtTime(t.submitted))}</span><span class="muted">${esc(t.ownerName)}</span>
       ${slaLine("Receipt", t.receipt, S.ctx.receiptDays)}${slaLine("Resolution", t.resolution, S.ctx.resolutionDays)}</div></div>`;
-    if (t.actions.length) h += `<div class="card"><h4>Needs action</h4><ul class="actions-list">${t.actions.map((a) => `<li><span class="dot sev-${a.sev}"></span><span>${esc(a.label || a.text)} <span class="muted">· ${a.who === "arietis" ? "Arietis" : "owner"}</span></span>${a.days ? odTile(a.days, true) : ""}</li>`).join("")}</ul></div>`;
+    if (t.actions.length) h += `<div class="card"><h4>Needs action</h4><ul class="actions-list">${t.actions.map((a) => `<li><span class="dot sev-${a.sev}"></span><span>${esc(a.label || a.text)} <span class="muted">· ${a.who === "arietis" ? "Arietis" : "owner"}</span></span></li>`).join("")}</ul></div>`;
     h += `<div class="btn-row" style="margin-bottom:10px"><button class="btn sm" data-act="mailTicketArietis">Email Arietis</button><button class="btn sm" data-act="mailTicketOwner">Email owner</button>${t.link ? `<button class="btn sm" data-url="${esc(t.link)}">Form response</button>` : ""}</div>`;
     if (t.opsEscalated) {
       h += `<div class="card ops-card"><h4>Ops escalation <span class="sp"></span>${isOpsLeader() ? `<button type="button" class="btn sm danger" data-act="deescalate">De-escalate</button>` : ""}</h4>
