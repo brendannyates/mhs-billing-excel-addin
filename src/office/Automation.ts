@@ -26,6 +26,8 @@ function businessAge(start: Cell, today: string, holidays: string[]): number {
 function object(headers: string[], row: Cell[]): Row {const o: Row={};headers.forEach((h,i)=>o[h]=row[i]??'');return o;}
 function epoch(v: Cell): number {return typeof v==='number'?(v-25569)*86400000:Date.parse(String(v));}
 function main(workbook: ExcelScript.Workbook, operation: string='sync', localToday: string='', repliesJson: string='[]', mode: string='open'): string {
+  // Manual Run from Excel passes no date: default to today in Pacific time.
+  if(!String(localToday||'').trim())localToday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   if(!/^\d{4}-\d{2}-\d{2}$/.test(localToday))throw Error('Pass localToday as Pacific YYYY-MM-DD.');
   const master=workbook.getWorksheet('Master'),raw=workbook.getWorksheet('Raw Data'),stateSheet=workbook.getWorksheet('_SyncState'),settings=workbook.getWorksheet('Settings');
   if(!master||!raw||!stateSheet||!settings)throw Error('Initialize with Excel add-in first.');
