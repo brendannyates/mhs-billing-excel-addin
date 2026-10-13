@@ -26,7 +26,8 @@ No patient records are bundled or published. The static host serves code only. T
 - **Ticket rows** are one line: severity dot, ticket #, patient code, MRN, issue, status. Every list has an **MRN / patient / #** filter.
 - **Ticket detail** shows the SLA timeline, actions, the update form, the ops escalation card, any form/Master conflict, the Arietis thread and the history.
 - **Profile** (name, email, role, assigned clinics) is stored on the device. Assigned clinics are the default scope for Action, Ops and Stats.
-- **Full screen** (⛶): opens the same app in a large window. The task pane stays open behind it and does all workbook reads and writes.
+- **Full screen** (⛶): in Excel on the web it covers the spreadsheet in the same tab. Excel desktop always shows add-in views in their own window, so there it opens a window sized to cover Excel. The task pane stays open behind it and does all workbook reads and writes.
+- **Startup options** (Settings › Startup): *Open Billing Tickets automatically with this workbook* is saved in the workbook and applies to everyone who has the add-in. *Expand to full screen automatically* is per person and per computer.
 
 ## Install (Excel add-in)
 1. Keep the original Forms-linked workbook in its Microsoft 365 location. A downloaded copy loses the live Forms connection.

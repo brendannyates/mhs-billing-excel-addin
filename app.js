@@ -105,11 +105,13 @@
     try { return Office.context.requirements.isSetSupported("DialogApi", "1.2"); } catch (e) { return false; }
   }
   let dlg = null;
-  function openFull() {
+  function openFull(auto) {
     if (dlg) return;
     const url = location.origin + location.pathname + "?mode=dialog";
-    Office.context.ui.displayDialogAsync(url, { height: 94, width: 94, displayInIframe: false }, (r) => {
-      if (r.status !== Office.AsyncResultStatus.Succeeded) { toast("Couldn't open full screen: " + (r.error && r.error.message), true); return; }
+    // displayInIframe: in Excel on the web the view opens as an overlay on top of the spreadsheet, in the same tab.
+    // Excel desktop always draws add-in dialogs in their own window; 100% makes it cover the Excel window.
+    Office.context.ui.displayDialogAsync(url, { height: 100, width: 100, displayInIframe: true, promptBeforeOpen: false }, (r) => {
+      if (r.status !== Office.AsyncResultStatus.Succeeded) { if (!auto) toast("Couldn't open full screen: " + (r.error && r.error.message), true); return; }
       dlg = r.value;
       const rx = receiver((m) => {
         if (m.close) { try { dlg.close(); } catch (e) { /* closed */ } dlg = null; refresh(false, true); return; }
@@ -168,6 +170,7 @@
       S.src.watch(debounce(() => refresh(false, true), 1500));
       if (S.src.kind === "excel") setInterval(() => { if (!S._busy && document.visibilityState === "visible" && !isEditing()) refresh(true, true); }, 30000);
       if (!profile.email && S.src.kind !== "dataverse") pickMe();
+      if (S.src.kind === "excel" && autoFull() && canFullScreen() && profile.email) setTimeout(() => openFull(true), 400);
     } catch (e) { renderFatal(e.message || String(e)); }
   }
   function isEditing() {
@@ -826,6 +829,9 @@
       ${S.src.kind === "dataverse" ? `<div class="card"><h4>Data</h4><dl class="kv"><dt>Store</dt><dd>Dataverse (Power Pages)</dd><dt>Tickets</dt><dd>${S.tickets.length}</dd><dt>Loaded</dt><dd>${esc(S.lastSync ? BE.fmtDateTime(S.lastSync) : "—")}</dd></dl><div class="btn-row" style="margin-top:8px"><button class="btn sm primary" data-act="syncNow">Refresh</button></div></div>` : `<div class="card"><h4>Workbook</h4><dl class="kv"><dt>Raw Data (form)</dt><dd>${ok(st.raw)} read-only, never written</dd><dt>Master</dt><dd>${ok(st.master)} ${S.tickets.length} tickets · all edits land here</dd><dt>Sync</dt><dd>Every 30 s while this pane is open · last ${esc(S.lastSync ? BE.fmtDateTime(S.lastSync) : "—")}</dd><dt>Merge rule</dt><dd>Form blanks never erase Master; disagreements are flagged, not overwritten</dd><dt>Email link</dt><dd>${S.settings.workbookUrl ? `<a href="${esc(S.settings.workbookUrl)}" target="_blank" rel="noopener">MHS-only workbook link</a> <span class="muted">(Settings › Workbook URL)</span>` : '<span class="muted">Not set. Paste the workbook link into Settings › Workbook URL</span>'}</dd></dl>
       <div class="btn-row" style="margin-top:8px"><button class="btn sm primary" data-act="syncNow">Sync now</button><button class="btn sm" data-act="init">Initialize / refresh</button></div></div>`}
       <div class="card"><h4>SLA rules</h4><dl class="kv"><dt>Receipt</dt><dd>${S.ctx ? S.ctx.receiptDays : 2} business days from submission</dd><dt>Resolution</dt><dd>${S.ctx ? S.ctx.resolutionDays : 5} business days from submission</dd><dt>Stale</dt><dd>${S.ctx ? S.ctx.staleDays : 3} business days without activity</dd><dt>Holidays</dt><dd>${S.ctx ? S.ctx.hol.size : 0} on the calendar</dd></dl><p class="muted" style="margin:8px 0 0">${S.src.kind === "dataverse" ? "Change these in the Escalation Settings and Holidays tables." : "Change these on the Settings sheet (column A/B values; holidays in column D)."}</p></div>
+      ${S.src.kind === "excel" ? `<div class="card"><h4>Startup</h4><div class="checks" style="border:0;padding:0;flex-direction:column;gap:8px">
+        <label><input type="checkbox" data-pref="autoOpen" ${autoOpenOn() ? "checked" : ""}> Open Billing Tickets automatically with this workbook <span class="muted">(everyone who has the add-in)</span></label>
+        ${canFullScreen() ? `<label><input type="checkbox" data-pref="autoFull" ${autoFull() ? "checked" : ""}> Expand to full screen automatically <span class="muted">(just me, this computer)</span></label>` : ""}</div></div>` : ""}
       <div class="card"><h4>Preview my automated emails</h4><div class="btn-row"><button class="btn sm" data-act="preview" data-mode="open">Start of day</button><button class="btn sm" data-act="preview" data-mode="close">End of day</button><button class="btn sm" data-act="preview" data-mode="weekly">Weekly recap</button></div></div>
       <p class="muted">MHS Billing Tickets v${VERSION} · keys: <span class="kbd">/</span> search · <span class="kbd">R</span> sync · <span class="kbd">Esc</span> back</p>`);
   }
@@ -896,6 +902,20 @@
     v.scrollTop = S._resetScroll ? 0 : keepScroll;
     S._resetScroll = false;
   }
+  // ------------------------------------------------------------------ startup options
+  const AUTO_OPEN_KEY = "Office.AutoShowTaskpaneWithDocument";
+  function autoOpenOn() { try { return !!Office.context.document.settings.get(AUTO_OPEN_KEY); } catch (e) { return false; } }
+  /** Saved in the workbook: the pane opens by itself for everyone who has the add-in and opens this workbook. */
+  function setAutoOpen(on) {
+    return new Promise((res, rej) => {
+      try {
+        const st = Office.context.document.settings;
+        if (on) st.set(AUTO_OPEN_KEY, true); else st.remove(AUTO_OPEN_KEY);
+        st.saveAsync((r) => (r.status === Office.AsyncResultStatus.Succeeded ? res() : rej(new Error((r.error && r.error.message) || "couldn't save"))));
+      } catch (e) { rej(e); }
+    });
+  }
+  const autoFull = () => store.get("autoFull", "0") === "1"; // per person, per device
   const MORE_TABS = { action: "Action", recaps: "Recaps", activity: "Activity", new: "+ New ticket" };
   function isOpsLeader() { return !!profile.opsLeader; }
   /** Narrow pane: open/close the More dropdown under its button (fixed, so the scrolling tab bar can't clip it). */
@@ -991,6 +1011,13 @@
   document.addEventListener("change", (e) => {
     const f = e.target.getAttribute && e.target.getAttribute("data-filter");
     if (f) { S.f[f] = e.target.value; if (f === "clinic") store.set("clinic", e.target.value); S._resetScroll = true; render(); return; }
+    const pref = e.target.getAttribute && e.target.getAttribute("data-pref");
+    if (pref === "autoFull") { store.set("autoFull", e.target.checked ? "1" : "0"); toast(e.target.checked ? "Will open full screen automatically" : "Full screen only when you click ⛶"); return; }
+    if (pref === "autoOpen") {
+      const on = e.target.checked, box = e.target;
+      setAutoOpen(on).then(() => toast(on ? "Billing Tickets will open with this workbook" : "Won't open automatically"), (err) => { box.checked = !on; toast("Couldn't save: " + err.message, true); });
+      return;
+    }
     if (S.detail !== null && e.target.closest("#view")) onDetailInput(e);
   });
   document.addEventListener("keydown", (e) => {
