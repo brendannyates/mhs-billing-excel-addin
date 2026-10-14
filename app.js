@@ -108,8 +108,7 @@
   function openFull(auto) {
     if (dlg) return;
     const url = location.origin + location.pathname + "?mode=dialog";
-    // displayInIframe: in Excel on the web the view opens as an overlay on top of the spreadsheet, in the same tab.
-    // Excel desktop always draws add-in dialogs in their own window; 100% makes it cover the Excel window.
+    // displayInIframe: the view floats over the spreadsheet in the same browser tab (Excel on the web). Never a separate window.
     Office.context.ui.displayDialogAsync(url, { height: 100, width: 100, displayInIframe: true, promptBeforeOpen: false }, (r) => {
       if (r.status !== Office.AsyncResultStatus.Succeeded) { if (!auto) toast("Couldn't open full screen: " + (r.error && r.error.message), true); return; }
       dlg = r.value;
@@ -129,7 +128,7 @@
       const id = Math.random().toString(36).slice(2);
       pendingCalls.set(id, { res, rej });
       sendChunks((x) => Office.context.ui.messageParent(x), { id, method, args });
-      setTimeout(() => { if (pendingCalls.has(id)) { pendingCalls.delete(id); rej(new Error("The task pane didn't answer. Keep the MHS Billing Tickets pane open behind this window.")); } }, 90000);
+      setTimeout(() => { if (pendingCalls.has(id)) { pendingCalls.delete(id); rej(new Error("The task pane didn't answer. Keep the MHS Billing Tickets pane open behind full screen.")); } }, 90000);
     });
   }
   const DialogSource = {
@@ -923,7 +922,7 @@
     const btn = $("#btnMore"), menu = $("#moreMenu");
     if (getComputedStyle(menu).position === "static") return; // wide sidebar: always open
     const open = force === undefined ? !menu.classList.contains("open") : force;
-    menu.classList.toggle("open", open); btn.setAttribute("aria-expanded", String(open));
+    menu.classList.toggle("open", open); btn.setAttribute("aria-expanded", String(open)); $("#moreScrim").hidden = !open;
     if (open) {
       const r = btn.getBoundingClientRect();
       menu.style.top = Math.round(r.bottom + 2) + "px";
