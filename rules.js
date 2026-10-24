@@ -831,7 +831,7 @@ function planSync(
                    
  
 function ticketIdFromSubject(subject        )                {
-  const m = subject.match(/\[BE-(\d+)\]/i) || subject.match(/Escalation\s*#\s*(\d+)/i) || subject.match(/Ticket\s*#\s*(\d+)/i);
+  const m = subject.match(/Ticket\s*ID\s*#?\s*:?\s*(\d+)/i) || subject.match(/\[BE-(\d+)\]/i) || subject.match(/Escalation\s*#\s*(\d+)/i) || subject.match(/Ticket\s*#\s*(\d+)/i);
   return m ? parseInt(m[1], 10) : null;
 }
 function planReply(

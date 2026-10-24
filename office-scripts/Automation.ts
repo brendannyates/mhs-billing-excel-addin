@@ -3,7 +3,7 @@
 /** Run from Power Automate. Serialize every workbook writer through one worker flow. */
 // Cell, Row (evaluated model) and the SLA/action rules come from the shared rules engine appended below.
 type Row = {[key: string]: Cell};
-type Reply = {conversationId: string; sender: string; receivedAt: string; messageId: string};
+type Reply = {conversationId: string; sender: string; receivedAt: string; messageId: string; subject?: string};
 type Registration = {ticketId: string | number; conversationId: string; sentAt: string};
 type State = {baseline: Row; overrides: string[]; conflicts: string[]};
 type Mail = {conversationId: string; from: string; to: string; receivedAt: string; messageId: string; subject: string; side?: string};
@@ -87,7 +87,11 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
     replies.forEach(r=>{
       if(r.sender.toLowerCase()!=='patientbilling@arietishealth.com')return;
       if(!r.conversationId||!Number.isFinite(Date.parse(r.receivedAt)))throw Error('Invalid reply payload');
-      const matches=tickets.filter(t=>String(t['Vendor Conversation ID'])===r.conversationId);
+      // Arietis replies often start a new Outlook conversation ("Re: [EXTERNAL] ..."), so when no ticket
+      // has this conversation ID, fall back to one ticket token in the subject. Never MRN.
+      let matches=tickets.filter(t=>String(t['Vendor Conversation ID'])===r.conversationId);
+      const sid=matches.length?null:ticketIdFromSubject(String(r.subject||''));
+      if(sid!==null)matches=tickets.filter(t=>String(t.Id).trim()===String(sid));
       if(matches.length!==1){unmatched.push(r.messageId);return;}
       const t=matches[0],received=Date.parse(r.receivedAt),cutoff=present(t['Closed At'])?epoch(t['Closed At']):Infinity;
       if(received>cutoff)return;
@@ -102,7 +106,7 @@ function main(workbook: ExcelScript.Workbook, operation: string='sync', localTod
     });
   }else if(operation==='audit'){
     // One-time inbox backfill. repliesJson = every message to or from Arietis in the billing mailbox (any order, any folder).
-    // A conversation matches its ticket by Vendor Conversation ID, else by one ticket token in its subjects ([BE-n], Escalation #n, Ticket #n).
+    // A conversation matches its ticket by Vendor Conversation ID, else by one ticket token in its subjects (MHS Ticket ID#: n, [BE-n], Escalation #n, Ticket #n).
     // Date of first reply is filled only while blank; a different date already there is reported, never overwritten.
     // mode=preview (default) writes nothing; mode=apply writes. Safe to rerun or to send in chunks: every field is a min/max.
     const msgs: Mail[]=JSON.parse(repliesJson),byConv: {[c: string]: Mail[]}={};
@@ -1009,7 +1013,7 @@ interface ReplyResult {
   rowIndex: number;
 }
 function ticketIdFromSubject(subject: string): number | null {
-  const m = subject.match(/\[BE-(\d+)\]/i) || subject.match(/Escalation\s*#\s*(\d+)/i) || subject.match(/Ticket\s*#\s*(\d+)/i);
+  const m = subject.match(/Ticket\s*ID\s*#?\s*:?\s*(\d+)/i) || subject.match(/\[BE-(\d+)\]/i) || subject.match(/Escalation\s*#\s*(\d+)/i) || subject.match(/Ticket\s*#\s*(\d+)/i);
   return m ? parseInt(m[1], 10) : null;
 }
 function planReply(

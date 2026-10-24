@@ -56,9 +56,11 @@ Trigger **Office 365 Outlook — When a new email arrives in a shared mailbox (V
 Queue `operation=reply`, and `repliesJson` with this shape:
 ```
 [{"conversationId":"<Outlook conversationId>","sender":"patientbilling@arietishealth.com",
-  "receivedAt":"2026-10-02T21:30:00Z","messageId":"<Outlook message id>"}]
+  "receivedAt":"2026-10-02T21:30:00Z","messageId":"<Outlook message id>","subject":"<subject>"}]
 ```
-The script uses the message received timestamp, not flow execution time. First reply=min(receivedAt), last reply=max(receivedAt), tolerating retries and out-of-order events. Exactly one ticket must match; zero/ambiguous matches return message ids in `unmatched` for a restricted review queue. No automatic MRN or subject fallback.
+In the Run script step, wrap the existing object in one more `addProperty(..., 'subject', coalesce(triggerOutputs()?['body/subject'], ''))`.
+
+The script uses the message received timestamp, not flow execution time. First reply=min(receivedAt), last reply=max(receivedAt), tolerating retries and out-of-order events. A reply matches by Vendor Conversation ID. If no ticket has that ID (Arietis replies often start a new conversation), the subject must name exactly one ticket (`MHS Ticket ID#: 123`, `[BE-123]`, `Escalation #123` or `Ticket #123`). No MRN fallback. Zero/ambiguous matches return message ids in `unmatched` for a restricted review queue.
 
 For the newest Arietis reply, the script also sets **Last Updated By** = `Arietis (auto)` and **Last Updated At** = the received time, unless staff updated the ticket after that reply. `Arietis (auto)` never counts as a staff review, so the add-in keeps showing "New Arietis reply — review & update" until someone edits the ticket.
 
@@ -92,7 +94,7 @@ Fills these on Master from the billing mailbox's history, for every ticket it ca
 - **Vendor Conversation ID:** filled only while blank, and only when exactly one conversation matches the ticket and no other ticket already uses it.
 - **Last Message At** and **Last Message From:** the latest message either way, and who sent it (`Arietis` or `MHS`). These are new columns. Open the add-in and run Initialize once to add them; until then they're listed under `missingColumns`.
 
-**How a conversation is matched:** by Vendor Conversation ID first. If no ticket has that ID, the subject must name exactly one ticket (`[BE-123]`, `Escalation #123` or `Ticket #123`, the same tokens the add-in reads). There is no MRN or patient-name matching. Anything else goes to `unmatched` for manual review.
+**How a conversation is matched:** by Vendor Conversation ID first. If no ticket has that ID, the subject must name exactly one ticket (`MHS Ticket ID#: 123`, `[BE-123]`, `Escalation #123` or `Ticket #123`, the same tokens the add-in reads). There is no MRN or patient-name matching. Anything else goes to `unmatched` for manual review.
 
 Messages after a ticket's Closed At are ignored. The audit doesn't change Status, Last Updated By/At, or anything on Raw Data.
 
