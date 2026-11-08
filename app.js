@@ -1222,6 +1222,15 @@
     if (!window.DevUpdates) return;
     window.DevUpdates.init({ app: "billing", send: MODE === "dialog" ? (m) => { try { Office.context.ui.messageParent(JSON.stringify(m)); } catch (e) { /* pane gone */ } } : null });
   }
+  // The bell's home (.du-home): right of the logo in full screen only, once the loading / "Enter your name" screen is gone.
+  // The pane has none, so the bell stays hidden there.
+  function placeHome() {
+    const br = document.querySelector(".top .brand"), h = br && br.querySelector(".du-home"), boot = $("#boot");
+    const want = MODE === "dialog" && (!boot || boot.hidden);
+    if (want && !h && br) br.insertAdjacentHTML("beforeend", '<span class="du-home" aria-hidden="true"></span>');
+    else if (!want && h) h.remove();
+  }
+  if (MODE === "dialog") { const boot = $("#boot"); if (boot) new MutationObserver(placeHome).observe(boot, { attributes: true, attributeFilter: ["hidden"] }); placeHome(); }
   if (typeof Office !== "undefined" && Office.onReady) Office.onReady(() => { applyTheme(); devUpdates(); boot(); });
   else { devUpdates(); boot(); }
 })();

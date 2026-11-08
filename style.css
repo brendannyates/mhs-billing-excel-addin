@@ -353,11 +353,9 @@ body.web { background: var(--bg); }
 
 /* ---- Dev Update bell (dev-updates.css): map its tokens onto this add-in's, so dark mode reads ---- */
 .devupd { --surface: var(--panel); --surface-2: var(--line); --surface-3: var(--hover); --muted: var(--ink-3); --accent-soft: var(--accent-bg); --font: var(--sans); --shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 32px -14px rgba(0,0,0,.35); }
-/* docked in the toolbar, last: the same size as the icons beside it */
-.devupd.du-docked .du-bell { width: 30px; height: 30px; border-radius: var(--r); color: var(--ink-2); }
-.devupd.du-docked .du-bell svg { width: 18px; height: 18px; }
-.devupd.du-docked .du-dot { top: 4px; right: 4px; width: 8px; height: 8px; }
-.devupd.du-docked .du-card, .devupd.du-docked .du-panel { top: 38px; }
+.devupd { --danger: var(--red); --danger-soft: var(--red-bg); }
+/* full screen only: its home is right of the logo, centred on the header line (none in the pane or on the loading / name screen) */
+.top .brand .du-home { margin: -6px 0; }
 
 /* ---- toolbar: flush right; hover labels say what a press does (the theme says the mode it switches to) ---- */
 .top-actions { justify-content: flex-end; }
@@ -374,11 +372,6 @@ body.web { background: var(--bg); }
 .icon-btn.theme.swap .tgo { animation: beswapR .38s cubic-bezier(.3,.7,.3,1); }
 @keyframes beswapL { from { transform: translateX(12px) rotate(-90deg); opacity: 1; } }
 @keyframes beswapR { from { transform: translateX(-12px) rotate(90deg); opacity: .6; } }
-/* half and half: the left half of where you are, the slash, the right half of the mode to press */
-.icon-btn.theme { gap: 0; padding: 0 9px; } .icon-btn.theme svg { width: 20px; height: 20px; }
-.icon-btn.theme .tcur svg { clip-path: inset(0 50% 0 0); } .icon-btn.theme .tgo svg { clip-path: inset(0 0 0 50%); }
-.icon-btn.theme .tcur { margin-right: -8px; opacity: .6; } .icon-btn.theme .tgo { margin-left: -8px; }
-.icon-btn.theme .tsl { position: relative; z-index: 1; padding: 0 1px; }
 @media (prefers-reduced-motion: reduce) { .icon-btn.theme.swap .tcur, .icon-btn.theme.swap .tgo { animation: none; } }
 
 /* ---- loading screen on open, then "Enter your name" (same layout as the IVK Tracker) ---- */
