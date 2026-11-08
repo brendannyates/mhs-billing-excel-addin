@@ -352,7 +352,29 @@ body.web { background: var(--bg); }
 @media(min-width:900px) { .app { grid-template-rows:auto auto minmax(0,1fr); } .banner[hidden] { height:0; } }
 
 /* ---- Dev Update bell (dev-updates.css): map its tokens onto this add-in's, so dark mode reads ---- */
-.devupd { --surface: var(--panel); --surface-2: var(--line); --muted: var(--ink-3); --accent-soft: var(--accent-bg); --font: var(--sans); --shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 32px -14px rgba(0,0,0,.35); }
+.devupd { --surface: var(--panel); --surface-2: var(--line); --surface-3: var(--hover); --muted: var(--ink-3); --accent-soft: var(--accent-bg); --font: var(--sans); --shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 32px -14px rgba(0,0,0,.35); }
+/* docked in the toolbar, last: the same size as the icons beside it */
+.devupd.du-docked .du-bell { width: 30px; height: 30px; border-radius: var(--r); color: var(--ink-2); }
+.devupd.du-docked .du-bell svg { width: 18px; height: 18px; }
+.devupd.du-docked .du-dot { top: 4px; right: 4px; width: 8px; height: 8px; }
+.devupd.du-docked .du-card, .devupd.du-docked .du-panel { top: 38px; }
+
+/* ---- toolbar: flush right; hover labels say what a press does (the theme says the mode it switches to) ---- */
+.top-actions { justify-content: flex-end; }
+.top-actions .icon-btn { position: relative; }
+.top-actions .icon-btn[data-tip]:hover::after, .top-actions .icon-btn[data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; white-space: nowrap; padding: 5px 9px; border-radius: 8px; background: var(--ink); color: var(--panel); font-size: 12px; font-weight: 500; line-height: 1.2; pointer-events: none; z-index: 60; }
+/* light / dark: "sun / moon"; the right one is the one to press, the left is where you are. They swap places on a change. */
+.icon-btn.theme { width: auto; padding: 0 6px; display: flex; align-items: center; gap: 3px; }
+.icon-btn.theme svg { width: 16px; height: 16px; fill: none; }
+.icon-btn.theme .tsl { font-size: 14px; color: var(--ink-3); line-height: 1; }
+.icon-btn.theme .tcur { opacity: .45; }
+.icon-btn.theme .tgo { color: var(--ink); }
+.icon-btn.theme .tcur, .icon-btn.theme .tgo { display: grid; place-items: center; }
+.icon-btn.theme.swap .tcur { animation: beswapL .38s cubic-bezier(.3,.7,.3,1); }
+.icon-btn.theme.swap .tgo { animation: beswapR .38s cubic-bezier(.3,.7,.3,1); }
+@keyframes beswapL { from { transform: translateX(22px) rotate(-90deg); opacity: 1; } }
+@keyframes beswapR { from { transform: translateX(-22px) rotate(90deg); opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .icon-btn.theme.swap .tcur, .icon-btn.theme.swap .tgo { animation: none; } }
 
 /* ---- loading screen on open, then "Enter your name" (same layout as the IVK Tracker) ---- */
 .boot { position: fixed; inset: 0; z-index: 50; display: flex; overflow: auto; background: var(--bg); padding: 24px; }

@@ -166,7 +166,7 @@
     if (MODE === "dialog") DialogSource.init();
     S.src = MODE === "dialog" ? DialogSource : inExcel ? window.ExcelSource : onPages ? window.DataverseSource : window.DemoSource;
     if (S.src.kind === "demo") showBanner("Demo mode — synthetic data. Open from Excel (Home › MHS Billing Tickets) to work on the live workbook.");
-    if (S.src.kind === "dataverse") $("#btnSync").title = "Refresh";
+    if (S.src.kind === "dataverse") $("#btnSync").setAttribute("aria-label", "Refresh");
     S.boot = { m: {} };
     drawBoot();
     bootMark("connect", S.src.kind === "demo" ? "Synthetic data" : "Connected");
@@ -185,7 +185,7 @@
     }
     try { S.wb = S.src.workbookKey ? await S.src.workbookKey() : ""; } catch (e) { S.wb = ""; }
     if (inExcel && canFullScreen()) $("#btnFull").hidden = false;
-    if (MODE === "dialog") { document.body.classList.add("web"); $("#btnFull").hidden = false; $("#btnFull").title = "Close full screen"; }
+    if (MODE === "dialog") { document.body.classList.add("web"); $("#btnFull").hidden = false; $("#btnFull").dataset.tip = "Exit full screen"; $("#btnFull").setAttribute("aria-label", "Exit full screen"); }
     try {
       if (S.src.kind === "excel" || S.src.kind === "excel-dialog") {
         busy(true, "Preparing workbook…");
@@ -1180,10 +1180,18 @@
   $("#btnMe").addEventListener("click", pickMe);
   $("#btnSettings").addEventListener("click", openSettings);
 
-  // ------------------------------------------------------------------ theme (per device: Auto / Light / Dark)
-  // Auto follows Excel's Office theme when Office reports one, otherwise the OS setting (CSS media query).
-  const THEMES = ["auto", "light", "dark"];
-  const THEME_LABEL = { auto: "Auto (follows Excel / system)", light: "Light", dark: "Dark" };
+  // ------------------------------------------------------------------ theme (per device): light / dark
+  // Until someone presses it, the theme follows Excel's Office theme when Office reports one, otherwise the OS setting.
+  // The button shows "sun / moon": the left one is where you are, the right one is what a press switches to; they swap places.
+  const ICON_SUN = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+  const ICON_MOON = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>';
+  function isDark() {
+    const pref = store.get("theme", "auto");
+    if (pref === "light" || pref === "dark") return pref === "dark";
+    const d = typeof Office !== "undefined" ? officeThemeIsDark() : null;
+    if (d !== null) return d;
+    try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch (e) { return false; }
+  }
   function officeThemeIsDark() {
     try {
       const bg = Office.context.officeTheme && Office.context.officeTheme.bodyBackgroundColor;
@@ -1192,17 +1200,19 @@
       return lum < 0.5;
     } catch (e) { return null; }
   }
-  function applyTheme() {
+  function applyTheme(swap) {
     const pref = store.get("theme", "auto"), root = document.documentElement;
     let mode = pref;
     if (pref === "auto") { const d = typeof Office !== "undefined" ? officeThemeIsDark() : null; mode = d === null ? "" : (d ? "dark" : "light"); }
     if (mode) root.setAttribute("data-theme", mode); else root.removeAttribute("data-theme");
-    const b = $("#btnTheme"); b.title = "Theme: " + THEME_LABEL[pref]; b.setAttribute("aria-label", b.title);
+    const dark = isDark(), go = dark ? "Light mode" : "Dark mode", b = $("#btnTheme");
+    b.dataset.tip = go; b.setAttribute("aria-label", "Switch to " + go.toLowerCase()); b.setAttribute("aria-pressed", String(dark));
+    b.classList.toggle("is-dark", dark);
+    b.innerHTML = dark ? `<span class="tcur">${ICON_MOON}</span><span class="tsl">/</span><span class="tgo">${ICON_SUN}</span>` : `<span class="tcur">${ICON_SUN}</span><span class="tsl">/</span><span class="tgo">${ICON_MOON}</span>`;
+    b.classList.remove("swap");
+    if (swap) { void b.offsetWidth; b.classList.add("swap"); } // plays the swap once, on a press
   }
-  $("#btnTheme").addEventListener("click", () => {
-    const next = THEMES[(THEMES.indexOf(store.get("theme", "auto")) + 1) % THEMES.length];
-    store.set("theme", next); applyTheme(); toast("Theme: " + THEME_LABEL[next]);
-  });
+  $("#btnTheme").addEventListener("click", () => { store.set("theme", isDark() ? "light" : "dark"); applyTheme(true); });
   window.addEventListener("storage", (e) => { if (e.key === "be.theme") applyTheme(); }); // keep pane and full-screen window in step
   applyTheme();
 
