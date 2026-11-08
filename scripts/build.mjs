@@ -23,7 +23,7 @@ for (const f of fs.readdirSync(path.join(root, "src/office")).filter((f) => f.en
 const dp = path.join(root, "dist-pages");
 fs.rmSync(dp, { recursive: true, force: true });
 fs.mkdirSync(path.join(dp, "assets"), { recursive: true });
-for (const f of ["rules.js", "app.js", "demo.js", "style.css"]) fs.copyFileSync(path.join(root, f), path.join(dp, f));
+for (const f of ["rules.js", "app.js", "demo.js", "style.css", "who.js", "dev-updates.js", "dev-updates.css", "dev-updates.json"])fs.copyFileSync(path.join(root, f), path.join(dp, f));
 for (const f of ["dataverse.js", "config.js"]) fs.copyFileSync(path.join(root, "pages", f), path.join(dp, f));
 // Same page as the add-in, minus Office: Dataverse source instead of Excel, full-width layout.
 const pageHtml = read("index.html")

@@ -4,8 +4,10 @@
   "use strict";
   const BE = window.BE;
   const C = BE.COL;
-  const VERSION = "2.1.0";
-  const MODE = new URLSearchParams(location.search).get("mode") || "pane";
+  const VERSION = "2.3.0";
+  const QS = new URLSearchParams(location.search);
+  const MODE = QS.get("mode") || "pane";
+  const W = window.BEWho;
   const DEFAULT_FORM = "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=8Sq2y8CkOEWdeGKInLNdYw1_rrxVxaFImLkzEWnt0GFUQUtJVFg2VzU5UEowM01JMUgzUUpKMTZPVi4u";
   const REF_MAP = {
     [C.dept]: "Department Submitting Ticket:", [C.clinic]: "Patient Primary Clinic:", [C.urgency]: "Urgency Level:",
@@ -48,6 +50,7 @@
     src: null, ready: false, me: BE.normKey(profile.email), tab: store.get("tab", "mine"), detail: null,
     tickets: [], byId: new Map(), settings: BE.readSettings([]), ctx: null, refCols: new Map(), clinics: [],
     clinicEmails: new Map(), people: new Map(), activity: [], lastSync: null, setupNeeded: false,
+    users: [], wb: "", ssoNow: false, boot: null, picking: false, pickCancel: false,
     f: { scope: "assigned", recapMode: "am", recapClinic: "", actq: "", ops: "queue", mine: "open", clinic: store.get("clinic", ""), sort: "attention", stage: "open", actWho: "all", actClinic: "", range: "all", q: "", find: "" },
   };
 
@@ -97,6 +100,8 @@
       let m; try { m = JSON.parse(msg); } catch (e) { return; }
       if (!m || m.k === undefined) return;
       if (m.k === "close") { cb({ close: true }); return; }
+      if (m.k === "devupd") { if (window.DevUpdates) window.DevUpdates.receive(m); return; } // a Dev Update dismissed on the other side
+      if (m.k === "who") { cb({ who: m }); return; } // a name picked in full screen
       const p = parts.get(m.k) || []; p[m.i] = m.d; parts.set(m.k, p);
       if (p.filter((x) => x !== undefined).length === m.n) { parts.delete(m.k); cb(JSON.parse(p.join(""))); }
     };
@@ -107,19 +112,28 @@
   let dlg = null;
   function openFull(auto) {
     if (dlg) return;
-    const url = location.origin + location.pathname + "?mode=dialog";
+    // full screen may not share this pane's storage, so it is told who's picked today (and which Dev Updates were seen)
+    const q = new URLSearchParams({ mode: "dialog" });
+    if (S.me) { q.set("me", S.me); if (profile.name) q.set("meName", profile.name); if (S.ssoNow) q.set("sso", "1"); }
+    if (S.wb) q.set("wb", S.wb);
+    let url = location.origin + location.pathname + "?" + q.toString();
+    if (window.DevUpdates) url = window.DevUpdates.dialogUrl(url);
     // displayInIframe: the view floats over the spreadsheet in the same browser tab (Excel on the web). Never a separate window.
     Office.context.ui.displayDialogAsync(url, { height: 100, width: 100, displayInIframe: true, promptBeforeOpen: false }, (r) => {
       if (r.status !== Office.AsyncResultStatus.Succeeded) { if (!auto) toast("Couldn't open full screen: " + (r.error && r.error.message), true); return; }
       dlg = r.value;
+      const d = dlg;
+      if (window.DevUpdates) window.DevUpdates.setSend((m) => d.messageChild(JSON.stringify(m)));
+      const done = () => { if (window.DevUpdates) window.DevUpdates.setSend(null); dlg = null; refresh(false, true); };
       const rx = receiver((m) => {
-        if (m.close) { try { dlg.close(); } catch (e) { /* closed */ } dlg = null; refresh(false, true); return; }
+        if (m.close) { try { d.close(); } catch (e) { /* closed */ } done(); return; }
+        if (m.who) { pickWho(W.cleanEmail(m.who.email), W.cleanName(m.who.name), { remote: true }); return; }
         Promise.resolve().then(() => window.ExcelSource[m.method].apply(window.ExcelSource, m.args || []))
           .then((v) => ({ id: m.id, ok: true, v }), (e) => ({ id: m.id, ok: false, e: (e && e.message) || String(e) }))
-          .then((res) => { try { sendChunks((x) => dlg.messageChild(x), res); } catch (e) { /* dialog closed */ } });
+          .then((res) => { try { sendChunks((x) => d.messageChild(x), res); } catch (e) { /* dialog closed */ } });
       });
-      dlg.addEventHandler(Office.EventType.DialogMessageReceived, (ev) => rx(ev.message));
-      dlg.addEventHandler(Office.EventType.DialogEventReceived, () => { dlg = null; refresh(false, true); });
+      d.addEventHandler(Office.EventType.DialogMessageReceived, (ev) => rx(ev.message));
+      d.addEventHandler(Office.EventType.DialogEventReceived, done);
     });
   }
   const pendingCalls = new Map();
@@ -139,6 +153,7 @@
     },
     status: () => dialogCall("status"), setup: (me) => dialogCall("setup", me), load: () => dialogCall("load"), sync: (u) => dialogCall("sync", u),
     saveTicket: (id, edits, by) => dialogCall("saveTicket", id, edits, by), setWorkbookUrl: (u) => dialogCall("setWorkbookUrl", u),
+    getUsers: () => dialogCall("getUsers"), addUser: (u) => dialogCall("addUser", u), workbookKey: async () => QS.get("wb") || "",
     addColumns: (c) => Promise.resolve(c),
     async watch(cb) { setInterval(() => { if (document.visibilityState === "visible" && !isEditing()) cb(); }, 30000); },
     openUrl(url) { window.open(url, "_blank", "noopener"); },
@@ -152,29 +167,145 @@
     S.src = MODE === "dialog" ? DialogSource : inExcel ? window.ExcelSource : onPages ? window.DataverseSource : window.DemoSource;
     if (S.src.kind === "demo") showBanner("Demo mode — synthetic data. Open from Excel (Home › MHS Billing Tickets) to work on the live workbook.");
     if (S.src.kind === "dataverse") $("#btnSync").title = "Refresh";
+    S.boot = { m: {} };
+    drawBoot();
+    bootMark("connect", S.src.kind === "demo" ? "Synthetic data" : "Connected");
     if (S.src.currentUser) { const u = S.src.currentUser(); if (u && u.email) { S.me = u.email; if (u.name) S.meNameHint = u.name; } }
     if (inExcel) {
       const u = await ssoUser();
+      S.ssoNow = !!u;
       if (u) { profile = { ...profile, name: u.name || profile.name, email: u.email, sso: true }; saveProfile(); S.me = BE.normKey(u.email); }
+      else if (profile.sso) { profile.sso = false; saveProfile(); } // signed in on an earlier day, not today
+      bootMark("sso", u ? "Signed in as " + (u.name || u.email) : "Not available here. You'll pick your name next.");
     }
+    if (MODE === "dialog") { // the pane says who's picked today
+      const email = W.cleanEmail(QS.get("me"));
+      S.ssoNow = QS.get("sso") === "1";
+      if (email) becomePerson(email, W.cleanName(QS.get("meName")), S.ssoNow);
+    }
+    try { S.wb = S.src.workbookKey ? await S.src.workbookKey() : ""; } catch (e) { S.wb = ""; }
     if (inExcel && canFullScreen()) $("#btnFull").hidden = false;
     if (MODE === "dialog") { document.body.classList.add("web"); $("#btnFull").hidden = false; $("#btnFull").title = "Close full screen"; }
     try {
       if (S.src.kind === "excel" || S.src.kind === "excel-dialog") {
         busy(true, "Preparing workbook…");
         const added = await S.src.setup(S.me); // idempotent Initialize / refresh
+        bootMark("setup", MODE === "dialog" ? "Connected" : added.length ? added.length + " update" + (added.length > 1 ? "s" : "") + " made" : "Up to date");
         if (added.length) toast("Workbook prepared: " + added.length + " update" + (added.length > 1 ? "s" : "") + " (columns, Settings, Activity Log). Raw Data untouched.");
       }
       await refresh(true);
+      if (!S.ready) throw new Error(S._err || "Couldn't read the workbook.");
       S.src.watch(debounce(() => refresh(false, true), 1500));
       if (S.src.kind === "excel") setInterval(() => { if (!S._busy && document.visibilityState === "visible" && !isEditing()) refresh(true, true); }, 30000);
-      if (!profile.email && S.src.kind !== "dataverse") pickMe();
-      if (S.src.kind === "excel" && autoFull() && canFullScreen() && profile.email) setTimeout(() => openFull(true), 400);
-    } catch (e) { renderFatal(e.message || String(e)); }
+      if (S.src.getUsers) { try { S.users = W.readUsers(await S.src.getUsers()); } catch (e) { S.users = []; } }
+      bootDone();
+      // Microsoft sign-in is the default. Without it, ask once a day; full screen takes the pane's pick.
+      const today = W.whoToday(whoRead(), W.dayIso()), u = today && whoList().find((x) => x.email === today);
+      if (u && !S.ssoNow && u.email !== BE.normKey(profile.email)) becomePerson(u.email, u.name, false);
+      if (W.needsPick({ sso: S.ssoNow, kind: S.src.kind, users: whoList(), today })) { render(); showPicker(false); }
+      else afterWho();
+    } catch (e) { bootDone(); renderFatal(e.message || String(e)); }
+  }
+  /* once someone is known: open full screen if they asked for it */
+  function afterWho() {
+    if (S._autoFullTried || S.src.kind !== "excel" || !autoFull() || !canFullScreen() || !profile.email) return;
+    S._autoFullTried = true; setTimeout(() => openFull(true), 400);
+  }
+
+  // ------------------------------------------------------------------ loading screen
+  const BOOT_STEPS = {
+    excel: [["connect", "Connecting to the workbook"], ["sso", "Checking your Microsoft sign-in"], ["setup", "Preparing Master"], ["sync", "Syncing new form entries"], ["load", "Reading tickets"]],
+    "excel-dialog": [["setup", "Getting the workbook from the task pane"], ["load", "Reading tickets"]],
+    demo: [["connect", "Opening the demo workbook"], ["sync", "Syncing new form entries"], ["load", "Reading tickets"]],
+    dataverse: [["connect", "Connecting"], ["load", "Reading tickets"]],
+  };
+  function bootMark(k, msg) { const B = S.boot; if (!B || B.closed) return; B.m[k] = msg || "Done"; drawBoot(); }
+  function drawBoot() {
+    const B = S.boot, el = $("#boot"); if (!B || B.closed || !el) return;
+    const steps = BOOT_STEPS[S.src.kind] || BOOT_STEPS.excel, cur = steps.findIndex(([k]) => !(k in B.m));
+    el.className = "boot"; el.hidden = false;
+    el.innerHTML = `<div class="bootin"><div class="spinner" aria-hidden="true"></div><h1>Billing Tickets</h1><p class="muted">${B.err ? esc(B.err) : "Reading the workbook."}</p>
+      <ol class="steps">${steps.map(([k, t], i) => { const done = k in B.m; return `<li class="step ${done ? "done" : i === cur ? "now" : "next"}"><span class="k">${done ? "✓" : ""}</span><span><span class="t">${esc(t)}</span><span class="m">${esc(B.m[k] || "")}</span></span></li>`; }).join("")}</ol></div>`;
+  }
+  function bootDone() { if (S.boot) S.boot.closed = true; const el = $("#boot"); if (el && !S.picking) { el.hidden = true; el.innerHTML = ""; } }
+
+  // ------------------------------------------------------------------ who's using it ("Enter your name")
+  // The list is saved in the workbook (Office document settings, no sheet); today's pick is kept on this computer per workbook.
+  const whoKey = () => (S.wb ? "who:" + S.wb : "");
+  const whoRead = () => W.whoRec(whoKey() ? store.get(whoKey(), "") : "");
+  /* the workbook's list, plus whoever last set a profile on this computer (so nobody has to add themselves again) */
+  function whoList() {
+    const L = S.users.slice(), p = W.cleanEmail(profile.email);
+    if (p && !L.some((u) => u.email === p)) L.push({ name: W.cleanName(profile.name) || p.split("@")[0], email: p });
+    return L;
+  }
+  /* switch this computer's profile to another person; each person's role and clinics are kept for when they're back */
+  const STASH_KEY = "mhsBillingProfiles";
+  function becomePerson(email, name, sso) {
+    if (email !== BE.normKey(profile.email)) {
+      let all = {}; try { all = JSON.parse(localStorage.getItem(STASH_KEY) || "{}") || {}; } catch (e) { all = {}; }
+      if (profile.email) all[BE.normKey(profile.email)] = profile;
+      profile = { name: "", email: "", role: "", clinics: [], ...(all[email] || {}) };
+      try { localStorage.setItem(STASH_KEY, JSON.stringify(all)); } catch (e) { /* private mode */ }
+    }
+    profile = { ...profile, name: name || profile.name || email.split("@")[0], email, sso: !!sso };
+    saveProfile();
+    S.me = BE.normKey(email);
+  }
+  function showPicker(cancel) {
+    const el = $("#boot"); if (!el) return;
+    S.picking = true; S.pickCancel = !!cancel && !!S.me;
+    const L = W.pickOrder(whoList(), whoRead().used), known = Array.from(S.people.keys()).filter((e) => W.cleanEmail(e)).sort();
+    el.className = "boot who"; el.hidden = false;
+    el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "Enter your name"); el.removeAttribute("aria-live");
+    el.innerHTML = `<div class="bootin"><div class="whohero"><h1>Enter your name</h1>
+      <p class="muted">${L.length ? "Pick yours below, or add it if you’re new." : "Nobody has added their name to this workbook yet. Add yours to start."}</p></div>
+      ${L.length ? `<div class="wholist" role="group" aria-label="People on this workbook">${L.map((u) => `<button type="button" class="btn whob" data-act="pickWho" data-v="${esc(u.email)}" title="${esc(u.email)}"><span>${esc(u.name)}${u.dup ? ` <span class="muted">${esc(u.email)}</span>` : ""}</span>${u.here ? `<span class="tag">On this computer</span>` : ""}</button>`).join("")}</div>` : ""}
+      <details class="fold whonew"${L.length ? "" : " open"}><summary>${L.length ? "I’m not on the list" : "Add your name"}</summary>
+        <label class="fld">Your name<input id="whoName" autocomplete="off" spellcheck="false" maxlength="40"></label>
+        <label class="fld">Your work email<input id="whoEmail" type="email" autocomplete="off" spellcheck="false" list="whoEmails"><span class="hint">The one Microsoft Forms records. My Tickets finds your tickets by it.</span></label>
+        <datalist id="whoEmails">${known.map((e) => `<option value="${esc(e)}">`).join("")}</datalist>
+        <div class="actions"><button type="button" class="btn primary" data-act="addWho">Add me and start</button></div></details>
+      ${S.pickCancel ? `<div class="actions"><button type="button" class="btn sm" data-act="pickCancel">Stay as ${esc(meName())}</button></div>` : ""}</div>`;
+    const f = L.length ? el.querySelector(".whob") : $("#whoName"); if (f) f.focus();
+  }
+  function hidePicker() {
+    S.picking = false; S.pickCancel = false;
+    const el = $("#boot"); if (!el) return;
+    el.hidden = true; el.innerHTML = ""; el.className = "boot";
+    el.setAttribute("role", "status"); el.setAttribute("aria-live", "polite"); el.removeAttribute("aria-modal"); el.removeAttribute("aria-label");
+  }
+  function pickWho(email, name, o) {
+    o = o || {};
+    if (!email) return;
+    const u = whoList().find((x) => x.email === email);
+    name = name || (u && u.name) || "";
+    becomePerson(email, name, false);
+    if (whoKey()) store.set(whoKey(), JSON.stringify(W.whoPick(whoRead(), email, W.dayIso())));
+    // someone from this computer's profile who isn't on the workbook's list yet: add them, quietly
+    if (!o.remote && !S.users.some((x) => x.email === email) && S.src.addUser) {
+      S.users = W.addUser(S.users, { name: profile.name, email });
+      S.src.addUser({ name: profile.name, email }).then((L) => { S.users = W.readUsers(L); }, () => { /* read-only: asked again next time */ });
+    }
+    if (MODE === "dialog" && !o.remote) { try { Office.context.ui.messageParent(JSON.stringify({ k: "who", email, name: profile.name })); } catch (e) { /* pane gone */ } }
+    if (S.picking) hidePicker();
+    S.f.scope = "assigned";
+    render();
+    if (!o.quiet && !o.remote) toast("Hi " + (profile.name.split(" ")[0] || profile.name) + ". Changes today are saved under " + profile.name + ".");
+    afterWho();
+  }
+  async function addWho() {
+    const name = W.cleanName(($("#whoName") || {}).value), email = W.cleanEmail(($("#whoEmail") || {}).value);
+    if (!name) { toast("Type your name.", true); $("#whoName").focus(); return; }
+    if (!email) { toast("Type your work email, the one Microsoft Forms records.", true); $("#whoEmail").focus(); return; }
+    let quiet = false;
+    try { S.users = W.readUsers(await S.src.addUser({ name, email })); }
+    catch (e) { S.users = W.addUser(S.users, { name, email }); quiet = true; toast("Couldn't save your name to the workbook, so you're set on this computer for today only.", true); }
+    pickWho(email, name, { quiet });
   }
   function isEditing() {
     const a = document.activeElement;
-    return !!$("#overlay") || (S.detail !== null && detailEdits().length > 0) || S.review || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.id !== "find");
+    return S.picking || !!$("#overlay") || (S.detail !== null && detailEdits().length > 0) || S.review || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.id !== "find");
   }
   function debounce(fn, ms) { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; }
 
@@ -189,18 +320,21 @@
         if (r.appended.length) toast("Added " + r.appended.length + " new ticket" + (r.appended.length > 1 ? "s" : "") + ": #" + r.appended.join(", #"));
         else if (r.updated) toast("Merged " + r.updated + " form edit" + (r.updated > 1 ? "s" : "") + " into Master");
         if (r.duplicates && r.duplicates.length) showBanner("Duplicate ticket Ids on Master: #" + r.duplicates.join(", #") + " — delete the extra rows.");
+        bootMark("sync", r.appended.length ? r.appended.length + " new" : r.updated ? r.updated + " form edit" + (r.updated > 1 ? "s" : "") + " merged" : "Nothing new");
       }
       busy(true, quiet ? "Updating…" : "Loading…");
       const d = await S.src.load();
       const dirty = quiet && !force && S.detail !== null && $("#editForm") && detailEdits().length > 0;
       ingest(d);
       S.ready = true;
+      bootMark("load", S.tickets.length + " ticket" + (S.tickets.length === 1 ? "" : "s"));
       busy(false);
       if (dirty) { toast("Master changed in the background. Your unsaved edits are kept; save to apply."); return; }
       render();
     } catch (e) {
       busy(false);
-      toast(e.message || String(e), true);
+      S._err = e.message || String(e);
+      toast(S._err, true);
     } finally { S._busy = false; }
   }
 
@@ -802,10 +936,14 @@
   function closeSheet() { const o = $("#overlay"); if (o) o.remove(); }
   function pickMe() {
     if (S.src && S.src.currentUser && S.src.currentUser()) { toast("Signed in as " + meName() + " (from your Microsoft sign-in)"); return; }
+    const picks = !profile.sso && !!S.src.getUsers; // no Microsoft sign-in: the name comes from "Enter your name"
+    if (picks && !S.me) { showPicker(false); return; }
     const emails = Array.from(S.people.keys()).sort();
     const clinics = S.clinics.filter((c) => c !== "(No clinic)");
     sheet("Your profile", `<form id="profileForm" class="form" autocomplete="off">
-      ${profile.sso ? `<div class="field full"><span class="lab">Signed in as</span><div><b>${esc(profile.name || profile.email)}</b> <span class="muted">${esc(profile.email)} · from your Microsoft sign-in</span></div><input type="hidden" name="name" value="${esc(profile.name)}"><input type="hidden" name="email" value="${esc(profile.email)}"></div>` : `<div class="field"><label for="pfName">Name</label><input id="pfName" name="name" value="${esc(profile.name)}" required></div>
+      ${profile.sso ? `<div class="field full"><span class="lab">Signed in as</span><div><b>${esc(profile.name || profile.email)}</b> <span class="muted">${esc(profile.email)} · from your Microsoft sign-in</span></div><input type="hidden" name="name" value="${esc(profile.name)}"><input type="hidden" name="email" value="${esc(profile.email)}"></div>`
+      : picks ? `<div class="field full"><span class="lab">You today</span><div class="toolbar" style="margin:0"><span><b>${esc(profile.name || profile.email)}</b> <span class="muted">${esc(profile.email)}</span></span><button type="button" class="btn sm" data-act="switchWho">Not you? Switch</button></div><input type="hidden" name="name" value="${esc(profile.name)}"><input type="hidden" name="email" value="${esc(profile.email)}"></div>`
+      : `<div class="field"><label for="pfName">Name</label><input id="pfName" name="name" value="${esc(profile.name)}" required></div>
       <div class="field"><label for="pfEmail">Email (the one Microsoft Forms records)</label><input id="pfEmail" name="email" type="email" list="pfEmails" value="${esc(profile.email)}" required><datalist id="pfEmails">${emails.map((e) => `<option value="${esc(e)}">`).join("")}</datalist></div>`}
       <div class="field full"><label for="pfRole">Role</label><input id="pfRole" name="role" value="${esc(profile.role)}" placeholder="e.g. Practice manager"></div>
       <div class="field full"><div class="checks"><label><input type="checkbox" name="opsLeader" value="1" ${profile.opsLeader ? "checked" : ""}>I'm an ops leader</label></div><span class="muted" style="font-size:11.5px">Shows the Ops tab: escalation queue, review with Arietis, export and de-escalate.</span></div>
@@ -984,6 +1122,10 @@
       case "save": saveDetail(); break;
       case "revert": render(); break;
       case "pickMe": pickMe(); break;
+      case "pickWho": pickWho(W.cleanEmail(a.dataset.v)); break;
+      case "addWho": addWho(); break;
+      case "pickCancel": hidePicker(); break;
+      case "switchWho": closeSheet(); showPicker(true); break;
       case "recapCopy": copyRich(S._recap.r.html, htmlToText(S._recap.r.html)); toast("Recap copied. Paste it into an Outlook email."); break;
       case "recapMail": compose({ to: S._recap.to, cc: S.settings.billingInbox, subject: S._recap.r.subject, html: S._recap.r.html }); break;
       case "fullscreen": MODE === "dialog" ? Office.context.ui.messageParent(JSON.stringify({ k: "close" })) : openFull(); break;
@@ -1021,6 +1163,11 @@
   });
   document.addEventListener("keydown", (e) => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    if (S.picking) { // the name screen covers everything else
+      if (e.key === "Enter" && e.target.closest && e.target.closest(".whonew input")) { e.preventDefault(); addWho(); }
+      else if (e.key === "Escape" && S.pickCancel) hidePicker();
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && S.detail !== null) { e.preventDefault(); saveDetail(); return; }
     if (e.key === "Escape" && $("#moreMenu").classList.contains("open")) { toggleMore(false); $("#btnMore").focus(); return; }
     if (e.key === "Escape" && S.review && !$("#overlay")) { S.review = null; render(); return; }
@@ -1060,6 +1207,11 @@
   applyTheme();
 
   // ------------------------------------------------------------------ start
-  if (typeof Office !== "undefined" && Office.onReady) Office.onReady(() => { applyTheme(); boot(); });
-  else boot();
+  // Dev Update bell: full screen passes what it has seen back to the pane
+  function devUpdates() {
+    if (!window.DevUpdates) return;
+    window.DevUpdates.init({ app: "billing", send: MODE === "dialog" ? (m) => { try { Office.context.ui.messageParent(JSON.stringify(m)); } catch (e) { /* pane gone */ } } : null });
+  }
+  if (typeof Office !== "undefined" && Office.onReady) Office.onReady(() => { applyTheme(); devUpdates(); boot(); });
+  else { devUpdates(); boot(); }
 })();

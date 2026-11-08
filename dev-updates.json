@@ -1,0 +1,13 @@
+{
+  "updates": [
+    {
+      "id": "2026-11-07-bell-name-screen",
+      "date": "2026-11-07",
+      "bullets": [
+        "New: This bell shows what's changed in Billing Tickets. Drag it anywhere and it stays put on this computer.",
+        "New: While the workbook loads, you'll see each step as it finishes.",
+        "New: If Billing Tickets can't tell who you are from your Microsoft sign-in, it asks you to enter your name once a day. Pick yours from the list, or add it with the email Microsoft Forms records."
+      ]
+    }
+  ]
+}

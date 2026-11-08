@@ -6,7 +6,8 @@
   <meta http-equiv="X-UA-Compatible" content="IE=Edge">
   <title>MHS Billing Tickets</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="dev-updates.css?v=1">
   <link rel="icon" href="assets/icon-32.png">
   <script>
     // Apply the saved theme before first paint (Auto = no attribute; app.js may refine Auto from the Office theme).
@@ -58,9 +59,13 @@
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
   <div id="moreScrim" class="scrim" hidden></div>
+  <!-- loading screen, then "Enter your name" when needed (app.js fills it in) -->
+  <div id="boot" class="boot" role="status" aria-live="polite"><div class="bootin"><div class="spinner" aria-hidden="true"></div><h1>Billing Tickets</h1><p class="muted">Reading the workbook.</p></div></div>
   <script src="rules.js?v=8"></script>
-  <script src="demo.js?v=8"></script>
-  <script type="module" src="excel.js?v=9"></script>
-  <script type="module" src="app.js?v=10"></script>
+  <script src="who.js?v=1"></script>
+  <script src="demo.js?v=9"></script>
+  <script src="dev-updates.js?v=1"></script>
+  <script type="module" src="excel.js?v=10"></script>
+  <script type="module" src="app.js?v=11"></script>
 </body>
 </html>

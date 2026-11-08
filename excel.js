@@ -232,6 +232,27 @@ export const ExcelSource = {
 };
 globalThis.ExcelSource = ExcelSource;
 globalThis.beNowSerial = nowSerial;
+/* "Enter your name" list: Office document settings, saved inside the workbook (no sheet). Re-read before every change
+   so a name another computer added isn't lost. */
+const docSettings = () => Office.context.document.settings;
+const refreshDoc = () => new Promise((res) => { try { docSettings().refreshAsync(() => res()); } catch (e) { res(); } });
+const saveDoc = () => new Promise((res, rej) => {
+  try { docSettings().saveAsync((r) => (r.status === Office.AsyncResultStatus.Succeeded ? res() : rej(new Error("Couldn't save to the workbook. Try again.")))); } catch (e) { rej(e); }
+});
+ExcelSource.getUsers = async () => { await refreshDoc(); try { return globalThis.BEWho.readUsers(docSettings().get(globalThis.BEWho.USERS_KEY)); } catch (e) { return []; } };
+ExcelSource.addUser = async (u) => {
+  await refreshDoc();
+  const W = globalThis.BEWho, list = W.addUser(docSettings().get(W.USERS_KEY), u);
+  docSettings().set(W.USERS_KEY, list); await saveDoc(); return list;
+};
+/** A short key for this workbook (its URL, or an id saved in it when Excel gives no URL), for this computer's memory. */
+ExcelSource.workbookKey = async () => {
+  let url = ''; try { url = Office.context.document.url || ''; } catch (e) { /* no document */ }
+  if (url) return globalThis.BEWho.wbKeyOf(url);
+  let id = null; try { id = docSettings().get('billingWbId'); } catch (e) { /* none */ }
+  if (!id) { id = 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); try { docSettings().set('billingWbId', id); await saveDoc(); } catch (e) { /* read-only: this session only */ } }
+  return globalThis.BEWho.wbKeyOf(id);
+};
 ExcelSource.setWorkbookUrl = async (url) => Excel.run(async (ctx) => {
   ctx.workbook.worksheets.getItem('Settings').getRange('A6:B6').values = [['Workbook URL', url]];
   await ctx.sync();
