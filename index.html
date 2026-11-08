@@ -6,7 +6,8 @@
   <meta http-equiv="X-UA-Compatible" content="IE=Edge">
   <title>MHS Billing Tickets</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="dev-updates.css?v=1">
   <link rel="icon" href="assets/icon-32.png">
   <script>
     // Apply the saved theme before first paint (Auto = no attribute; app.js may refine Auto from the Office theme).
@@ -23,19 +24,19 @@
       <div class="top-actions">
         <input class="search header-search" type="search" id="find" placeholder="Search tickets" autocomplete="off" aria-label="Search tickets">
         <span id="syncState" class="sync-state" role="status" aria-live="polite"></span>
-        <button id="btnFull" class="icon-btn" title="Full screen" aria-label="Full screen" data-act="fullscreen" hidden>
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v1H3v4H2zm7 0h5v5h-1V3H9zM2 9h1v4h4v1H2zm11 0h1v5H9v-1h4z"/></svg>
-        </button>
-        <button id="btnSync" class="icon-btn" title="Sync from Raw Data (R)" aria-label="Sync from Raw Data">
+        <button id="btnMe" class="me-chip" title="Signed in as">—</button>
+        <!-- tools, flush right: each shows what a press does on hover (data-tip); the Dev Update bell docks in .du-slot, last -->
+        <button id="btnSync" class="icon-btn" data-tip="Refresh" aria-label="Refresh: sync from Raw Data (R)">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.6 6.4A5.8 5.8 0 0 0 3 4.6V2.5H2v4h4v-1H3.6a4.8 4.8 0 0 1 9 1.2zM2.4 9.6A5.8 5.8 0 0 0 13 11.4v2.1h1v-4h-4v1h2.4a4.8 4.8 0 0 1-9-1.2z"/></svg>
         </button>
-        <button id="btnTheme" class="icon-btn" title="Theme: Auto" aria-label="Theme: Auto (follows Excel / system)">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1v12A6 6 0 0 1 8 2z"/></svg>
+        <button id="btnFull" class="icon-btn" data-tip="Full screen" aria-label="Full screen" data-act="fullscreen" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v1H3v4H2zm7 0h5v5h-1V3H9zM2 9h1v4h4v1H2zm11 0h1v5H9v-1h4z"/></svg>
         </button>
-        <button id="btnMe" class="me-chip" title="Signed in as">—</button>
-        <button id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings">
+        <button id="btnSettings" class="icon-btn" data-tip="Settings" aria-label="Settings">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zm0 1a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/><path d="M6.8 1h2.4l.4 1.9 1 .5 1.7-1 1.7 1.7-1 1.7.4 1 1.9.4v2.4l-1.9.4-.4 1 1 1.7-1.7 1.7-1.7-1-1 .4-.4 1.9H6.8l-.4-1.9-1-.4-1.7 1-1.7-1.7 1-1.7-.4-1L.7 9.2V6.8l1.9-.4.4-1-1-1.7 1.7-1.7 1.7 1 1-.5zm.8 1-.3 1.6-1.9.8-1.4-.9-.4.4.9 1.4-.8 1.9L2 7.6v.8l1.6.3.8 1.9-.9 1.4.4.4 1.4-.9 1.9.8.3 1.6h.8l.3-1.6 1.9-.8 1.4.9.4-.4-.9-1.4.8-1.9L14 8.4v-.8l-1.6-.3-.8-1.9.9-1.4-.4-.4-1.4.9-1.9-.8L8.4 2z"/></svg>
         </button>
+        <button id="btnTheme" class="icon-btn theme" data-tip="Dark mode" aria-label="Switch to dark mode" aria-pressed="false"></button>
+        <span class="du-slot"></span>
       </div>
     </header>
     <nav class="tabs" role="tablist" aria-label="Views">
@@ -58,9 +59,13 @@
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
   <div id="moreScrim" class="scrim" hidden></div>
+  <!-- loading screen, then "Enter your name" when needed (app.js fills it in) -->
+  <div id="boot" class="boot" role="status" aria-live="polite"><div class="bootin"><div class="spinner" aria-hidden="true"></div><h1>Billing Tickets</h1><p class="muted">Reading the workbook.</p></div></div>
   <script src="rules.js?v=8"></script>
-  <script src="demo.js?v=8"></script>
-  <script type="module" src="excel.js?v=9"></script>
-  <script type="module" src="app.js?v=10"></script>
+  <script src="who.js?v=1"></script>
+  <script src="demo.js?v=9"></script>
+  <script src="dev-updates.js?v=1"></script>
+  <script type="module" src="excel.js?v=10"></script>
+  <script type="module" src="app.js?v=11"></script>
 </body>
 </html>

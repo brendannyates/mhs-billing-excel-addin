@@ -350,3 +350,59 @@ body.web { background: var(--bg); }
 
 .view { min-width:0; }
 @media(min-width:900px) { .app { grid-template-rows:auto auto minmax(0,1fr); } .banner[hidden] { height:0; } }
+
+/* ---- Dev Update bell (dev-updates.css): map its tokens onto this add-in's, so dark mode reads ---- */
+.devupd { --surface: var(--panel); --surface-2: var(--line); --surface-3: var(--hover); --muted: var(--ink-3); --accent-soft: var(--accent-bg); --font: var(--sans); --shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 32px -14px rgba(0,0,0,.35); }
+/* docked in the toolbar, last: the same size as the icons beside it */
+.devupd.du-docked .du-bell { width: 30px; height: 30px; border-radius: var(--r); color: var(--ink-2); }
+.devupd.du-docked .du-bell svg { width: 18px; height: 18px; }
+.devupd.du-docked .du-dot { top: 4px; right: 4px; width: 8px; height: 8px; }
+.devupd.du-docked .du-card, .devupd.du-docked .du-panel { top: 38px; }
+
+/* ---- toolbar: flush right; hover labels say what a press does (the theme says the mode it switches to) ---- */
+.top-actions { justify-content: flex-end; }
+.top-actions .icon-btn { position: relative; }
+.top-actions .icon-btn[data-tip]:hover::after, .top-actions .icon-btn[data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; white-space: nowrap; padding: 5px 9px; border-radius: 8px; background: var(--ink); color: var(--panel); font-size: 12px; font-weight: 500; line-height: 1.2; pointer-events: none; z-index: 60; }
+/* light / dark: "sun / moon"; the right one is the one to press, the left is where you are. They swap places on a change. */
+.icon-btn.theme { width: auto; padding: 0 6px; display: flex; align-items: center; gap: 3px; }
+.icon-btn.theme svg { width: 16px; height: 16px; fill: none; }
+.icon-btn.theme .tsl { font-size: 14px; color: var(--ink-3); line-height: 1; }
+.icon-btn.theme .tcur { opacity: .45; }
+.icon-btn.theme .tgo { color: var(--ink); }
+.icon-btn.theme .tcur, .icon-btn.theme .tgo { display: grid; place-items: center; }
+.icon-btn.theme.swap .tcur { animation: beswapL .38s cubic-bezier(.3,.7,.3,1); }
+.icon-btn.theme.swap .tgo { animation: beswapR .38s cubic-bezier(.3,.7,.3,1); }
+@keyframes beswapL { from { transform: translateX(22px) rotate(-90deg); opacity: 1; } }
+@keyframes beswapR { from { transform: translateX(-22px) rotate(90deg); opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .icon-btn.theme.swap .tcur, .icon-btn.theme.swap .tgo { animation: none; } }
+
+/* ---- loading screen on open, then "Enter your name" (same layout as the IVK Tracker) ---- */
+.boot { position: fixed; inset: 0; z-index: 50; display: flex; overflow: auto; background: var(--bg); padding: 24px; }
+.bootin { width: min(380px, 100%); margin: auto; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.bootin h1 { margin: 22px 0 0; font-size: 30px; font-weight: 600; }
+.bootin > p { margin: 6px 0 0; font-size: 14px; }
+.spinner { width: 44px; height: 44px; border-radius: 50%; border: 4px solid var(--line); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+.steps { list-style: none; width: 100%; margin: 24px 0 0; padding: 0; text-align: left; }
+.step { display: grid; grid-template-columns: 22px 1fr; gap: 12px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line); }
+.step .k { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); margin-top: 1px; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--on-accent); }
+.step.done .k { background: var(--accent); border-color: var(--accent); }
+.step.now .k { border-color: var(--ink); }
+.step .t { font-size: 14px; }
+.step .m { display: block; min-height: 17px; font-size: 12.5px; color: var(--ink-3); margin-top: 1px; }
+.boot.who .bootin { width: min(420px, 100%); }
+.whohero { display: flex; flex-direction: column; align-items: center; }
+.whohero h1 { margin: 0; }
+.wholist { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 22px; }
+.wholist .whob { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; height: auto; min-height: 48px; font-size: 16px; text-align: left; white-space: normal; }
+.wholist .whob .muted { font-size: 12.5px; }
+.tag { flex: none; padding: 2px 8px; border-radius: 10px; background: var(--accent-bg); color: var(--accent); font-size: 11.5px; font-weight: 600; }
+.whonew { width: 100%; margin-top: 14px; text-align: left; }
+details.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::after { content: "▸"; color: var(--ink-3); font-weight: 400; }
+details.fold[open] > summary::after { content: "▾"; }
+.fld { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.fld input { height: 36px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--panel); color: var(--ink); font-size: 14px; font-weight: 400; }
+.fld .hint { font-weight: 400; color: var(--ink-3); }
+.boot .actions { display: flex; justify-content: flex-start; gap: 6px; margin-top: 12px; width: 100%; }
+.boot .actions .btn.primary { height: 40px; padding: 0 16px; }

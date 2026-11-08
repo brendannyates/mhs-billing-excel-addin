@@ -79,6 +79,17 @@
     },
     async watch() {},
     openUrl(url) { window.open(url, "_blank", "noopener"); },
+    // "Enter your name" list: invented people, kept in this browser (the workbook's document settings in Excel)
+    async getUsers() {
+      let v = null; try { v = localStorage.getItem("be.demoUsers"); } catch (e) { /* private mode */ }
+      return window.BEWho.readUsers(v === null ? PEOPLE.slice(0, 2).map(([email, name]) => ({ name, email })) : v);
+    },
+    async addUser(u) {
+      const list = window.BEWho.addUser(await DemoSource.getUsers(), u);
+      try { localStorage.setItem("be.demoUsers", JSON.stringify(list)); } catch (e) { /* private mode */ }
+      return list;
+    },
+    async workbookKey() { return "demo"; },
   };
   window.DemoSource = DemoSource;
 })();
